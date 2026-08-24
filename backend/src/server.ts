@@ -1,19 +1,37 @@
-import cors from "cors";
-import dotenv from "dotenv";
-import express from "express";
+/**
+ * Express Application Setup
+ * Configures middleware, routes, and error handling
+ */
 
-dotenv.config();
+import express, { Express, Request, Response, NextFunction } from 'express';
+import { corsMiddleware } from './middlewares/corsConfig';
+import { errorHandler, notFoundHandler } from './middlewares/errorHandler';
+import routes from './routes';
+import { logger } from './utils/logger';
 
-const app = express();
-const port = Number(process.env.PORT) || 5000;
+export function createApp(): Express {
+  const app = express();
 
-app.use(cors());
-app.use(express.json());
+  // ============ Middleware ============
+  // Body parser
+  app.use(express.json({ limit: '10mb' }));
+  app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
-app.get("/health", (_req, res) => {
-    res.status(200).json({ status: "ok" });
-});
+  // CORS
+  app.use(corsMiddleware());
 
-app.listen(port, () => {
-    console.log(`Backend is running on http://localhost:${port}`);
-});
+  // Request logging
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    logger.debug(`${req.method} ${req.path}`);
+    next();
+  });
+
+  // ============ Routes ============
+  app.use('/api', routes);
+
+  // ============ Error Handling ============
+  app.use(notFoundHandler);
+  app.use(errorHandler);
+
+  return app;
+}

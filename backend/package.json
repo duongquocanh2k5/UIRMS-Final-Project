@@ -1,27 +1,50 @@
 {
-  "name": "backend",
+  "name": "uirms-backend",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Urban Incident Reporting & Management System - Backend API",
+  "main": "dist/index.js",
   "scripts": {
-    "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "lint": "echo \"Linter not configured\" && exit 0"
   },
-  "keywords": [],
+  "keywords": [
+    "incident-reporting",
+    "management-system",
+    "urban",
+    "rest-api",
+    "express",
+    "typescript"
+  ],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "type": "commonjs",
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "dependencies": {
-    "cors": "^2.8.6",
-    "dotenv": "^17.4.2",
+    "bcrypt": "^5.1.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
     "express": "^5.2.1",
-    "pg": "^8.21.0"
+    "jsonwebtoken": "^9.0.2",
+    "nodemailer": "^6.9.4",
+    "pg": "^8.21.0",
+    "uuid": "^9.0.1"
   },
   "devDependencies": {
+    "@types/bcrypt": "^5.0.2",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
-    "@types/node": "^25.9.1",
-    "@types/pg": "^8.20.0",
+    "@types/jsonwebtoken": "^9.0.7",
+    "@types/node": "^20.11.5",
+    "@types/nodemailer": "^8.0.1",
+    "@types/pg": "^8.11.6",
+    "@types/uuid": "^9.0.7",
+    "nodemon": "^3.0.2",
+    "ts-node": "^10.9.2",
     "ts-node-dev": "^2.0.0",
     "typescript": "^6.0.3"
   }

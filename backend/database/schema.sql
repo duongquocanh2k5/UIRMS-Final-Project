@@ -463,7 +463,8 @@ INSERT INTO users (phone, email, password_hash, full_name, is_verified, bio)
 VALUES
     ('0912345678', 'user1@example.com', '$2b$10$abcdefghijklmnopqrstuvwxyz', 'Nguyễn Văn A', true, 'Tôi muốn báo cáo các sự cố trên đường phố'),
     ('0987654321', 'user2@example.com', '$2b$10$abcdefghijklmnopqrstuvwxyz', 'Trần Thị B', true, 'Cư dân tại Quận 1'),
-    ('0934567890', 'user3@example.com', '$2b$10$abcdefghijklmnopqrstuvwxyz', 'Phạm Văn C', false, NULL)
+    ('0934567890', 'user3@example.com', '$2b$10$abcdefghijklmnopqrstuvwxyz', 'Phạm Văn C', false, NULL),
+    ('0900000000', 'demo@uirms.com', '$2b$10$ovk1Zykfw3LrPJp/58jjEuL4K.oVgqM2dC8Vqc1J7tTX9e6jKvXDG', 'Người dùng demo', true, 'Tài khoản demo để đăng nhập nhanh')
 ON CONFLICT (phone) DO NOTHING;
 
 -- Insert sample admins
