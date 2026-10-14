@@ -8,17 +8,18 @@ import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { ActivityIndicator, View, Text } from 'react-native'; // 🛠️ SỬA LỖI 1: Đã thêm Text vào đây
+import { Ionicons } from '@expo/vector-icons';
 
 import { useAuth } from '../context/AuthContext';
-import LoginScreen from '../screens/LoginScreen';
-import RegisterScreen from '../screens/RegisterScreen';
-import ForgotPasswordScreen from '../screens/ForgotPasswordScreen';
-import HomeScreen from '../screens/HomeScreen';
-import ReportIncidentScreen from '../screens/ReportIncidentScreen';
-import MyIncidentsScreen from '../screens/MyIncidentsScreen';
-import IncidentDetailScreen from '../screens/IncidentDetailScreen';
-import NotificationsScreen from '../screens/NotificationsScreen';
-import ProfileScreen from '../screens/ProfileScreen';
+import LoginScreen from '@/screens/LoginScreen';
+import RegisterScreen from '@/screens/RegisterScreen';
+import ForgotPasswordScreen from '@/screens/ForgotPasswordScreen';
+import HomeScreen from '@/screens/HomeScreen';
+import ReportIncidentScreen from '@/screens/ReportIncidentScreen';
+import MyIncidentsScreen from '@/screens/MyIncidentsScreen';
+import IncidentDetailScreen from '@/screens/IncidentDetailScreen';
+import NotificationsScreen from '@/screens/NotificationsScreen';
+import ProfileScreen from '@/screens/ProfileScreen';
 
 // Tạo một Stack tổng để quản lý luồng Auth và App gọn gàng theo chuẩn v7
 const RootStack = createNativeStackNavigator();
@@ -85,11 +86,21 @@ const MyIncidentsStack = () => (
 
 const AppTabs = () => (
   <Tab.Navigator
-    screenOptions={() => ({
+    screenOptions={({ route }) => ({
       headerShown: false,
-      tabBarActiveTintColor: '#2563eb',
-      tabBarInactiveTintColor: '#999',
+      tabBarActiveTintColor: '#0A9D96',
+      tabBarInactiveTintColor: '#9AA8B6',
       tabBarLabelStyle: { fontSize: 12 },
+      tabBarIcon: ({ focused, color, size }) => {
+        const icons = {
+          Home: focused ? 'home' : 'home-outline',
+          MyIncidents: focused ? 'document-text' : 'document-text-outline',
+          Notifications: focused ? 'notifications' : 'notifications-outline',
+          Profile: focused ? 'person' : 'person-outline',
+        } as const;
+
+        return <Ionicons name={icons[route.name as keyof typeof icons]} size={size} color={color} />;
+      },
       tabBarStyle: {
         borderTopWidth: 1,
         borderTopColor: '#eee',

@@ -14,6 +14,7 @@ import {
   ActivityIndicator,
   ScrollView,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import ConditionalLoader from '../components/ui/ConditionalLoader';
 import { useAuth } from '../context/AuthContext';
 
@@ -32,6 +33,8 @@ export default function RegisterScreen({ navigation }: any) {
   const [identityNumber, setIdentityNumber] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<{
     fullName?: string;
@@ -135,23 +138,43 @@ export default function RegisterScreen({ navigation }: any) {
           editable={!loading}
         />
         {errors.identityNumber ? <Text style={styles.errorText}>{errors.identityNumber}</Text> : null}
-        <TextInput
-          style={styles.input}
-          placeholder="Mật khẩu"
-          value={password}
-          onChangeText={setPassword}
-          secureTextEntry
-          editable={!loading}
-        />
+        <View style={styles.passwordInputWrapper}>
+          <TextInput
+            style={[styles.input, styles.passwordInput]}
+            placeholder="Mật khẩu"
+            value={password}
+            onChangeText={setPassword}
+            secureTextEntry={!showPassword}
+            editable={!loading}
+          />
+          <TouchableOpacity
+            style={styles.eyeButton}
+            onPress={() => setShowPassword((visible) => !visible)}
+            accessibilityRole="button"
+            accessibilityLabel={showPassword ? 'Ẩn mật khẩu' : 'Hiển thị mật khẩu'}
+          >
+            <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={22} color="#64748b" />
+          </TouchableOpacity>
+        </View>
         {errors.password ? <Text style={styles.errorText}>{errors.password}</Text> : null}
-        <TextInput
-          style={styles.input}
-          placeholder="Xác nhận mật khẩu"
-          value={confirmPassword}
-          onChangeText={setConfirmPassword}
-          secureTextEntry
-          editable={!loading}
-        />
+        <View style={styles.passwordInputWrapper}>
+          <TextInput
+            style={[styles.input, styles.passwordInput]}
+            placeholder="Xác nhận mật khẩu"
+            value={confirmPassword}
+            onChangeText={setConfirmPassword}
+            secureTextEntry={!showConfirmPassword}
+            editable={!loading}
+          />
+          <TouchableOpacity
+            style={styles.eyeButton}
+            onPress={() => setShowConfirmPassword((visible) => !visible)}
+            accessibilityRole="button"
+            accessibilityLabel={showConfirmPassword ? 'Ẩn mật khẩu xác nhận' : 'Hiển thị mật khẩu xác nhận'}
+          >
+            <Ionicons name={showConfirmPassword ? 'eye-off-outline' : 'eye-outline'} size={22} color="#64748b" />
+          </TouchableOpacity>
+        </View>
         {errors.confirmPassword ? <Text style={styles.errorText}>{errors.confirmPassword}</Text> : null}
 
         {errors.general ? <Text style={styles.errorText}>{errors.general}</Text> : null}
@@ -198,6 +221,21 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 12,
     fontSize: 16,
+  },
+  passwordInputWrapper: {
+    position: 'relative',
+  },
+  passwordInput: {
+    paddingRight: 48,
+  },
+  eyeButton: {
+    position: 'absolute',
+    right: 8,
+    top: 0,
+    bottom: 0,
+    width: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   button: {
     backgroundColor: '#2563eb',

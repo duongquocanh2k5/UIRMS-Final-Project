@@ -1,0 +1,4 @@
+ALTER TABLE admins
+  ADD COLUMN phone VARCHAR(20),
+  ADD COLUMN department VARCHAR(100),
+  ADD COLUMN avatar_url TEXT;

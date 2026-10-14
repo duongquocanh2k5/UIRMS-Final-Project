@@ -18,13 +18,13 @@ export class IncidentService {
    * Create new incident
    */
   async createIncident(userId: number, input: CreateIncidentInput): Promise<Incident> {
-    const { category_id, title, description, location_name, latitude, longitude } = input;
+    const { category_id, title, description, location_name, district, latitude, longitude, priority } = input;
 
     const result = await query<Incident>(
-      `INSERT INTO incidents (user_id, category_id, title, description, location_name, location_point)
-       VALUES ($1, $2, $3, $4, $5, ST_SetSRID(ST_Point($6, $7), 4326))
+      `INSERT INTO incidents (user_id, category_id, title, description, location_name, district, location_point, priority)
+       VALUES ($1, $2, $3, $4, $5, $6, ST_SetSRID(ST_Point($7, $8), 4326), COALESCE($9, 'medium'))
        RETURNING *;`,
-      [userId, category_id, title, description, location_name, longitude, latitude]
+      [userId, category_id, title, description, location_name, district ?? null, longitude, latitude, priority]
     );
 
     return result[0]!;
@@ -35,9 +35,23 @@ export class IncidentService {
    */
   async getIncidentById(incidentId: number): Promise<Incident | null> {
     return queryOne<Incident>(
-      `SELECT * FROM incidents WHERE id = $1 AND deleted_at IS NULL;`,
+      `SELECT incidents.*,
+              COALESCE((SELECT json_agg(image_url ORDER BY created_at)
+                        FROM incident_images WHERE incident_id = incidents.id), '[]') AS image_urls
+       FROM incidents WHERE id = $1 AND deleted_at IS NULL;`,
       [incidentId]
     );
+  }
+
+  async addIncidentImage(incidentId: number, userId: number, imageUrl: string): Promise<boolean> {
+    const result = await query(
+      `INSERT INTO incident_images (incident_id, image_url, uploaded_by)
+       SELECT id, $3, $2 FROM incidents
+       WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
+       RETURNING id;`,
+      [incidentId, userId, imageUrl]
+    );
+    return result.length > 0;
   }
 
   /**
@@ -79,7 +93,10 @@ export class IncidentService {
     // Get paginated results
     const offset = calculateOffset(pagination.page, pagination.limit);
     const incidents = await query<Incident>(
-      `SELECT * FROM incidents ${whereClause}
+      `SELECT incidents.*,
+              COALESCE((SELECT json_agg(image_url ORDER BY created_at)
+                        FROM incident_images WHERE incident_id = incidents.id), '[]') AS image_urls
+       FROM incidents ${whereClause}
        ORDER BY created_at DESC
        LIMIT $${paramCount} OFFSET $${paramCount + 1};`,
       [...params, pagination.limit, offset]
@@ -170,13 +187,14 @@ export class IncidentService {
   /**
    * Delete incident (soft delete)
    */
-  async deleteIncident(incidentId: number): Promise<boolean> {
+  async deleteIncident(incidentId: number, userId: number): Promise<boolean> {
     const result = await query(
       `UPDATE incidents 
        SET deleted_at = NOW(), updated_at = NOW()
-       WHERE id = $1
+       WHERE id = $1 AND user_id = $2
+         AND deleted_at IS NULL
        RETURNING id;`,
-      [incidentId]
+      [incidentId, userId]
     );
 
     return result.length > 0;

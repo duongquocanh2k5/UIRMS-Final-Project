@@ -68,17 +68,16 @@
 {
   "dependencies": {
     "react": "19.2.3",
-    "react-native": "0.85.3",
-    "expo": "~56.0.5",
-    "expo-router": "~56.2.7",
-    "expo-location": "~56.0.x",
+    "react-native": "0.86.3",
+    "expo": "~57.0.23",
+    "expo-location": "~57.0.18",
     "@react-navigation/native": "^6.x",
     "@react-navigation/bottom-tabs": "^6.x",
     "@react-navigation/native-stack": "^6.x",
     "axios": "^1.x",
     "@react-native-async-storage/async-storage": "^1.x",
     "react-native-maps": "^1.x",
-    "react-native-gesture-handler": "~2.31.1"
+    "react-native-gesture-handler": "~2.32.0"
   }
 }
 ```
@@ -149,6 +148,7 @@ Create `.env` file in mobile-app directory:
 ```
 EXPO_PUBLIC_API_URL=http://localhost:5000/api
 ```
+For local network switching, use `.env.home` and `.env.school`, then run `npm run env:home` or `npm run env:school`. Restart Expo with `npx expo start -c` after switching.
 
 ---
 

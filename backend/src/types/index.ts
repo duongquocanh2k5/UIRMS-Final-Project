@@ -19,6 +19,7 @@ export interface User {
   created_at: Date;
   updated_at: Date;
   deleted_at?: Date;
+  image_urls?: string[];
 }
 
 export interface CreateUserInput {
@@ -43,11 +44,69 @@ export interface Admin {
   email: string;
   password_hash: string;
   full_name: string;
+  phone?: string | null;
+  department_id: number | null;
+  avatar_url?: string | null;
   role: AdminRole;
   is_active: boolean;
   last_login?: Date;
   created_at: Date;
   updated_at: Date;
+}
+
+export interface AdminProfileResponse {
+  id: number;
+  username: string;
+  email: string;
+  name: string;
+  phone: string | null;
+  avatar_url: string | null;
+  role: AdminRole;
+  is_active: boolean;
+  created_at: Date;
+}
+
+export interface UpdateAdminProfileInput {
+  name?: string;
+  phone?: string | null;
+  avatar_url?: string | null;
+}
+
+export interface CategoryResponse {
+  id: number;
+  name: string;
+  description: string | null;
+  icon: string | null;
+  color: string | null;
+  icon_url: string | null;
+  color_code: string | null;
+  severity_weight: number;
+  is_active: boolean;
+  created_at: Date;
+  updated_at: Date;
+  reportCount: number;
+}
+
+export interface CategoryInput {
+  name?: string;
+  icon?: string | null;
+  color?: string | null;
+}
+
+export interface DepartmentResponse {
+  id: number;
+  name: string;
+  area: string | null;
+  lead_admin_id: number | null;
+  leadName: string | null;
+  staffCount: number;
+  created_at: Date;
+}
+
+export interface DepartmentInput {
+  name?: string;
+  area?: string | null;
+  lead_admin_id?: number | null;
 }
 
 export interface CreateAdminInput {
@@ -58,6 +117,73 @@ export interface CreateAdminInput {
   role: AdminRole;
 }
 
+export type StaffRole = AdminRole.TECHNICIAN | AdminRole.MANAGER;
+
+export interface StaffListItem {
+  id: number;
+  name: string;
+  role: StaffRole;
+  department: string | null;
+  phone: string | null;
+  avatar_url: string | null;
+  is_active: boolean;
+  inProgressCount: number;
+  completedCount: number;
+}
+
+export interface StaffActiveIncident {
+  id: number;
+  title: string;
+  description: string | null;
+  category_name: string | null;
+  location_name: string | null;
+  district: string | null;
+  priority: IncidentPriority;
+  status: IncidentStatus;
+  created_at: Date;
+}
+
+export interface StaffDetailResponse {
+  id: number;
+  username: string;
+  name: string;
+  email: string;
+  phone: string | null;
+  department: string | null;
+  avatar_url: string | null;
+  role: StaffRole;
+  is_active: boolean;
+  last_login: Date | null;
+  created_at: Date;
+  updated_at: Date;
+  activeIncidents: StaffActiveIncident[];
+}
+
+export interface StaffStatsSummaryResponse {
+  totalStaff: number;
+  activeStaff: number;
+  busiestDepartment: {
+    name: string;
+    activeCount: number;
+  };
+}
+
+export interface CreateStaffInput {
+  name: string;
+  email: string;
+  phone?: string | null;
+  department?: string | null;
+  role: StaffRole;
+  password: string;
+}
+
+export interface UpdateStaffInput {
+  name?: string;
+  phone?: string | null;
+  department?: string | null;
+  is_active?: boolean;
+}
+
 // ==================== Category Types ====================
 export interface Category {
   id: number;
@@ -65,6 +191,8 @@ export interface Category {
   description?: string;
   icon_url?: string;
   color_code?: string;
+  icon?: string | null;
+  color?: string | null;
   severity_weight: number;
   is_active: boolean;
   created_at: Date;
@@ -78,6 +206,7 @@ export interface Incident {
   title: string;
   description?: string;
   location_name?: string;
+  district?: string | null;
   location_point: any; // PostGIS Point type
   priority: IncidentPriority;
   status: IncidentStatus;
@@ -98,8 +227,10 @@ export interface CreateIncidentInput {
   title: string;
   description?: string;
   location_name?: string;
+  district?: string;
   latitude: number;
   longitude: number;
+  priority?: IncidentPriority;
 }
 
 export interface UpdateIncidentInput {
@@ -130,6 +261,28 @@ export interface IncidentUpdate {
   updated_by: number;
   update_type: string;
   created_at: Date;
+}
+
+export interface IncidentHistory {
+  id: number;
+  incident_id: number;
+  action: 'assigned' | 'status_changed' | 'note_added';
+  old_status?: string;
+  new_status?: string;
+  old_assigned_to?: number;
+  new_assigned_to?: number;
+  note?: string;
+  performed_by: number;
+  created_at: Date;
+}
+
+export interface IncidentNote {
+  id: number;
+  incident_id: number;
+  note: string;
+  created_by: number;
+  created_at: Date;
+  updated_at: Date;
 }
 
 // ==================== Technician Types ====================
@@ -179,6 +332,7 @@ export interface PaginatedResponse<T> {
 
 // ==================== Query Filters ====================
 export interface IncidentFilters {
+  search?: string;
   status?: IncidentStatus;
   priority?: IncidentPriority;
   category_id?: number;

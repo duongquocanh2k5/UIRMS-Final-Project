@@ -16,6 +16,7 @@ import { Router } from 'express';
 import { incidentController } from '../controllers/incident.controller';
 import { authenticateToken } from '../middlewares/auth.middleware';
 import { validateRequest } from '../middlewares/validateRequest';
+import { incidentImageUpload } from '../middlewares/incidentUpload';
 
 const router = Router();
 
@@ -37,6 +38,13 @@ router.get('/', (req, res) => incidentController.getIncidents(req, res));
 // Get incident by ID
 router.get('/:incidentId', (req, res) => incidentController.getIncident(req, res));
 
+router.post(
+  '/:incidentId/images',
+  authenticateToken,
+  incidentImageUpload.single('image'),
+  (req, res) => incidentController.uploadIncidentImage(req, res)
+);
+
 // Create incident (authenticated)
 router.post(
   '/',
@@ -44,6 +52,7 @@ router.post(
   validateRequest({
     category_id: { required: true, type: 'number' },
     title: { required: true, type: 'string', minLength: 3 },
+    district: { required: false, type: 'string', maxLength: 100 },
     latitude: { required: true, type: 'number' },
     longitude: { required: true, type: 'number' },
     priority: { required: false, type: 'string' },

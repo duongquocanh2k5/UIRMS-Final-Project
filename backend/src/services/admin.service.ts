@@ -3,12 +3,12 @@
  * Handles admin-level business logic
  */
 
-import { query, queryOne } from '../config/database';
+import { query, queryOne, transaction } from '../config/database';
 import { Incident, PaginationParams, IncidentFilters } from '../types/index';
 import { calculateOffset } from '../utils/helpers';
 
 interface AdminIncidentUpdate {
-  assigned_technician?: string;
+  assigned_technician?: number;
   assigned_to?: number;
   priority?: string;
 }
@@ -19,9 +19,11 @@ export class AdminService {
    */
   async getDashboardStats(): Promise<{
     totalIncidents: number;
+    newIncidents: number;
     openIncidents: number;
     inProgressIncidents: number;
     completedIncidents: number;
+    urgentIncidents: number;
     averageResolutionTime: string;
     highPriorityCount: number;
   }> {
@@ -30,7 +32,7 @@ export class AdminService {
     );
 
     const open = await query<{ count: string }>(
-      `SELECT COUNT(*) as count FROM incidents WHERE status = 'open' AND deleted_at IS NULL;`
+      `SELECT COUNT(*) as count FROM incidents WHERE status = 'pending' AND deleted_at IS NULL;`
     );
 
     const inProgress = await query<{ count: string }>(
@@ -39,6 +41,10 @@ export class AdminService {
 
     const completed = await query<{ count: string }>(
       `SELECT COUNT(*) as count FROM incidents WHERE status = 'completed' AND deleted_at IS NULL;`
+    );
+
+    const urgent = await query<{ count: string }>(
+      `SELECT COUNT(*) as count FROM incidents WHERE priority = 'critical' AND deleted_at IS NULL;`
     );
 
     const avgTime = await query<{ avg_time: string }>(
@@ -53,9 +59,11 @@ export class AdminService {
 
     return {
       totalIncidents: parseInt(total[0]?.count || '0', 10),
+      newIncidents: parseInt(open[0]?.count || '0', 10),
       openIncidents: parseInt(open[0]?.count || '0', 10),
       inProgressIncidents: parseInt(inProgress[0]?.count || '0', 10),
       completedIncidents: parseInt(completed[0]?.count || '0', 10),
+      urgentIncidents: parseInt(urgent[0]?.count || '0', 10),
       averageResolutionTime: avgTime[0]?.avg_time ? `${parseFloat(avgTime[0].avg_time).toFixed(2)} hours` : 'N/A',
       highPriorityCount: parseInt(highPriority[0]?.count || '0', 10),
     };
@@ -81,6 +89,30 @@ export class AdminService {
     if (filters.priority) {
       whereClause += ` AND i.priority = $${paramCount}`;
       params.push(filters.priority);
+      paramCount++;
+    }
+
+    if (filters.category_id !== undefined) {
+      whereClause += ` AND i.category_id = $${paramCount}`;
+      params.push(filters.category_id);
+      paramCount++;
+    }
+
+    if (filters.search) {
+      whereClause += ` AND (i.title ILIKE $${paramCount} OR i.description ILIKE $${paramCount} OR CAST(i.id AS TEXT) ILIKE $${paramCount})`;
+      params.push(`%${filters.search}%`);
+      paramCount++;
+    }
+
+    if (filters.startDate) {
+      whereClause += ` AND i.created_at >= $${paramCount}`;
+      params.push(filters.startDate);
+      paramCount++;
+    }
+
+    if (filters.endDate) {
+      whereClause += ` AND i.created_at <= $${paramCount}`;
+      params.push(filters.endDate);
       paramCount++;
     }
 
@@ -119,36 +151,54 @@ export class AdminService {
    */
   async assignIncident(
     incidentId: number,
-    input: AdminIncidentUpdate
+    input: AdminIncidentUpdate,
+    performedBy: number
   ): Promise<Incident | null> {
-    let updateClause = 'SET updated_at = NOW()';
-    const params: any[] = [];
-    let paramCount = 1;
+    const assignedTo = input.assigned_to ?? input.assigned_technician;
+    return transaction(async (client) => {
+      const current = await client.query<Incident>(
+        'SELECT * FROM incidents WHERE id = $1 AND deleted_at IS NULL FOR UPDATE',
+        [incidentId]
+      );
+      const currentIncident = current.rows[0];
+      if (!currentIncident) return null;
 
-    if (input.assigned_technician) {
-      updateClause += `, assigned_technician = $${paramCount}`;
-      params.push(input.assigned_technician);
-      paramCount++;
-    }
+      if (assignedTo !== undefined) {
+        const staff = await client.query<{ id: number }>(
+          "SELECT id FROM admins WHERE id = $1 AND is_active = true AND role IN ('technician', 'manager')",
+          [assignedTo]
+        );
+        if (!staff.rows[0]) {
+          throw new Error('ASSIGNEE_NOT_FOUND');
+        }
+      }
 
-    if (input.assigned_to !== undefined) {
-      updateClause += `, assigned_to = $${paramCount}`;
-      params.push(input.assigned_to);
-      paramCount++;
-    }
-
-    if (input.priority) {
-      updateClause += `, priority = $${paramCount}`;
-      params.push(input.priority);
-      paramCount++;
-    }
-
-    params.push(incidentId);
-
-    return queryOne<Incident>(
-      `UPDATE incidents ${updateClause} WHERE id = $${paramCount} RETURNING *;`,
-      params
-    );
+      const values: any[] = [];
+      const updates = ['updated_at = NOW()'];
+      if (assignedTo !== undefined) {
+        values.push(assignedTo);
+        updates.push(`assigned_to = $${values.length}`, `assigned_technician = $${values.length}`);
+        if (currentIncident.status === 'pending') updates.push("status = 'assigned'");
+      }
+      if (input.priority) {
+        values.push(input.priority);
+        updates.push(`priority = $${values.length}`);
+      }
+      values.push(incidentId);
+      const updated = await client.query<Incident>(
+        `UPDATE incidents SET ${updates.join(', ')} WHERE id = $${values.length} RETURNING *`,
+        values
+      );
+      const result = updated.rows[0];
+      if (!result) return null;
+      await client.query(
+        `INSERT INTO incident_history
+          (incident_id, action, old_status, new_status, old_assigned_to, new_assigned_to, performed_by)
+         VALUES ($1, 'assigned', $2, $3, $4, $5, $6)`,
+        [incidentId, currentIncident.status, result.status, currentIncident.assigned_to ?? null, result.assigned_to ?? null, performedBy]
+      );
+      return result;
+    });
   }
 
   /**
@@ -156,17 +206,76 @@ export class AdminService {
    */
   async updateIncidentStatus(
     incidentId: number,
-    status: string
+    status: string,
+    performedBy: number
   ): Promise<Incident | null> {
-    const completedAt = status === 'completed' ? 'NOW()' : 'NULL';
-    
-    return queryOne<Incident>(
-      `UPDATE incidents 
-       SET status = $1, completed_at = ${completedAt}, updated_at = NOW()
-       WHERE id = $2 AND deleted_at IS NULL
-       RETURNING *;`,
-      [status, incidentId]
+    return transaction(async (client) => {
+      const current = await client.query<Incident>(
+        'SELECT * FROM incidents WHERE id = $1 AND deleted_at IS NULL FOR UPDATE',
+        [incidentId]
+      );
+      const currentIncident = current.rows[0];
+      if (!currentIncident) return null;
+      const updated = await client.query<Incident>(
+        `UPDATE incidents
+         SET status = $1, completed_at = $2, updated_at = NOW()
+         WHERE id = $3 AND deleted_at IS NULL
+         RETURNING *`,
+        [status, status === 'completed' ? new Date() : null, incidentId]
+      );
+      const result = updated.rows[0];
+      if (!result) return null;
+      await client.query(
+        `INSERT INTO incident_history
+          (incident_id, action, old_status, new_status, old_assigned_to, new_assigned_to, performed_by)
+         VALUES ($1, 'status_changed', $2, $3, $4, $5, $6)`,
+        [incidentId, currentIncident.status, result.status, currentIncident.assigned_to ?? null, result.assigned_to ?? null, performedBy]
+      );
+      return result;
+    });
+  }
+
+  async getStaff(): Promise<any[]> {
+    return query(
+      `SELECT id, username, email, full_name, role, is_active, created_at
+       FROM admins WHERE is_active = true ORDER BY full_name NULLS LAST, username`
     );
+  }
+
+  async getIncidentHistory(incidentId: number): Promise<any[]> {
+    return query(
+      `SELECT h.*, a.full_name AS performed_by_name
+       FROM incident_history h
+       JOIN admins a ON a.id = h.performed_by
+       WHERE h.incident_id = $1 ORDER BY h.created_at DESC, h.id DESC`,
+      [incidentId]
+    );
+  }
+
+  async getIncidentNotes(incidentId: number): Promise<any[]> {
+    return query(
+      `SELECT n.*, a.full_name AS created_by_name
+       FROM incident_notes n
+       JOIN admins a ON a.id = n.created_by
+       WHERE n.incident_id = $1 ORDER BY n.created_at DESC, n.id DESC`,
+      [incidentId]
+    );
+  }
+
+  async addIncidentNote(incidentId: number, note: string, createdBy: number): Promise<any | null> {
+    return transaction(async (client) => {
+      const incident = await client.query('SELECT id FROM incidents WHERE id = $1 AND deleted_at IS NULL', [incidentId]);
+      if (!incident.rows[0]) return null;
+      const created = await client.query(
+        `INSERT INTO incident_notes (incident_id, note, created_by) VALUES ($1, $2, $3) RETURNING *`,
+        [incidentId, note, createdBy]
+      );
+      await client.query(
+        `INSERT INTO incident_history (incident_id, action, note, performed_by) VALUES ($1, 'note_added', $2, $3)`,
+        [incidentId, note, createdBy]
+      );
+      return created.rows[0];
+    });
   }
 
   /**
@@ -229,8 +338,8 @@ export class AdminService {
         count: parseInt(row.count, 10),
         completed: parseInt(row.completed, 10),
       })),
-      avgResolutionTime: avgTimeResult[0]?.avg_time 
-        ? `${parseFloat(avgTimeResult[0].avg_time).toFixed(2)} hours` 
+      avgResolutionTime: avgTimeResult[0]?.avg_time
+        ? `${parseFloat(avgTimeResult[0].avg_time).toFixed(2)} hours`
         : 'N/A',
       completionRate: `${completionRate}%`,
     };
@@ -331,8 +440,8 @@ export class AdminService {
 
     return {
       totalResolved: parseInt(resolved[0]?.count || '0', 10),
-      avgResolutionTime: avgTime[0]?.avg_time 
-        ? `${parseFloat(avgTime[0].avg_time).toFixed(2)} hours` 
+      avgResolutionTime: avgTime[0]?.avg_time
+        ? `${parseFloat(avgTime[0].avg_time).toFixed(2)} hours`
         : 'N/A',
       highPriorityResolved: parseInt(highPriorityResolved[0]?.count || '0', 10),
       userReportsCount: parseInt(userReports[0]?.count || '0', 10),

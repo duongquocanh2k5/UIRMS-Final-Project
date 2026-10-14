@@ -414,9 +414,32 @@ All core API endpoints have been implemented for the UIRMS (Urban Incident Repor
 **Request Body:**
 ```json
 {
-  "assigned_technician": "John Technician",
   "assigned_to": 5,
   "priority": "high"
+}
+```
+
+The assignee must be an active technician or manager in `GET /admin/staff`. The assignment is recorded in `incident_history`.
+
+### GET /admin/staff
+**Description:** List active staff available for incident assignment
+**Authentication:** Required (JWT) - Admin/Manager only
+
+### GET /admin/incidents/:incidentId/history
+**Description:** Get the processing history for an incident
+**Authentication:** Required (JWT) - Admin/Manager only
+
+### GET /admin/incidents/:incidentId/notes
+**Description:** Get internal staff notes for an incident
+**Authentication:** Required (JWT) - Admin/Manager only
+
+### POST /admin/incidents/:incidentId/notes
+**Description:** Add an internal note and append a history entry
+**Authentication:** Required (JWT) - Admin/Manager only
+**Request Body:**
+```json
+{
+  "note": "Đã chuyển hồ sơ cho tổ sửa chữa khu vực 3."
 }
 ```
 **Response:** 200 OK
@@ -530,6 +553,21 @@ All core API endpoints have been implemented for the UIRMS (Urban Incident Repor
   }
 }
 ```
+
+### POST /admin/notifications
+**Description:** Send a notification to the user who reported an incident
+**Authentication:** Required (JWT) - Admin/Manager only
+**Request Body:**
+```json
+{
+  "user_id": 12,
+  "incident_id": 100,
+  "title": "Cập nhật xử lý",
+  "message": "Sự cố của bạn đang được đội kỹ thuật xử lý.",
+  "type": "status_update"
+}
+```
+**Allowed types:** `status_update`, `new_reply`, `system`, `reminder`.
 
 ---
 

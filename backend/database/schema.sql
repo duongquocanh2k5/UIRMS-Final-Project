@@ -133,6 +133,30 @@ CREATE TABLE incident_updates (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- TABLE: incident_history (Lịch sử xử lý sự cố)
+CREATE TABLE incident_history (
+    id BIGSERIAL PRIMARY KEY,
+    incident_id BIGINT NOT NULL REFERENCES incidents(id) ON DELETE CASCADE,
+    action VARCHAR(50) NOT NULL CHECK (action IN ('assigned', 'status_changed', 'note_added')),
+    old_status VARCHAR(50),
+    new_status VARCHAR(50),
+    old_assigned_to BIGINT REFERENCES admins(id) ON DELETE SET NULL,
+    new_assigned_to BIGINT REFERENCES admins(id) ON DELETE SET NULL,
+    note TEXT,
+    performed_by BIGINT NOT NULL REFERENCES admins(id) ON DELETE RESTRICT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- TABLE: incident_notes (Ghi chú nội bộ của nhân viên)
+CREATE TABLE incident_notes (
+    id BIGSERIAL PRIMARY KEY,
+    incident_id BIGINT NOT NULL REFERENCES incidents(id) ON DELETE CASCADE,
+    note TEXT NOT NULL,
+    created_by BIGINT NOT NULL REFERENCES admins(id) ON DELETE RESTRICT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 -- TABLE: technicians (Thợ sửa chữa / Bộ phận)
 -- Lưu trữ thông tin thợ sửa chữa và khu vực phụ trách
 CREATE TABLE technicians (
@@ -155,9 +179,9 @@ CREATE TABLE notifications (
     incident_id BIGINT REFERENCES incidents(id) ON DELETE CASCADE,
     title VARCHAR(255) NOT NULL,
     message TEXT NOT NULL,
-    notification_type notification_type NOT NULL,
+    type VARCHAR(50) NOT NULL DEFAULT 'system'
+        CHECK (type IN ('status_update', 'new_reply', 'system', 'reminder')),
     is_read BOOLEAN DEFAULT false,
-    action_url TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     read_at TIMESTAMP WITH TIME ZONE
 );
@@ -201,6 +225,10 @@ CREATE INDEX idx_incident_images_incident_id ON incident_images(incident_id);
 -- Incident updates indexes
 CREATE INDEX idx_incident_updates_incident_id ON incident_updates(incident_id);
 CREATE INDEX idx_incident_updates_created_at ON incident_updates(created_at);
+CREATE INDEX idx_incident_history_incident_id ON incident_history(incident_id);
+CREATE INDEX idx_incident_history_created_at ON incident_history(created_at);
+CREATE INDEX idx_incident_notes_incident_id ON incident_notes(incident_id);
+CREATE INDEX idx_incident_notes_created_at ON incident_notes(created_at);
 
 -- Technicians indexes
 CREATE INDEX idx_technicians_admin_id ON technicians(admin_id);

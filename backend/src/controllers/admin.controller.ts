@@ -8,6 +8,7 @@ import { AuthRequest } from '../middlewares/auth.middleware';
 import { HTTP_STATUS, ERROR_MESSAGES, SUCCESS_MESSAGES, PAGINATION } from '../config/constants';
 import { adminService } from '../services/admin.service';
 import { validatePaginationParams } from '../utils/validators';
+import { notificationService } from '../services/notification.service';
 
 export class AdminController {
   /**
@@ -36,15 +37,21 @@ export class AdminController {
    */
   async getAllIncidents(req: Request, res: Response): Promise<void> {
     try {
-      const { page = PAGINATION.DEFAULT_PAGE, limit = PAGINATION.DEFAULT_LIMIT, status, priority } = req.query;
+      const { page = PAGINATION.DEFAULT_PAGE, limit = PAGINATION.DEFAULT_LIMIT, status, priority, category_id, search, from_date, to_date } = req.query;
 
       const { page: validPage, limit: validLimit } = validatePaginationParams(page, limit);
 
+      const filters = {
+        ...(search ? { search: String(search) } : {}),
+        ...(status ? { status: status as any } : {}),
+        ...(priority ? { priority: priority as any } : {}),
+        ...(category_id ? { category_id: parseInt(category_id as string, 10) } : {}),
+        ...(from_date ? { startDate: new Date(`${from_date}T00:00:00.000Z`) } : {}),
+        ...(to_date ? { endDate: new Date(`${to_date}T23:59:59.999Z`) } : {}),
+      };
+
       const { incidents, total } = await adminService.getAllIncidentsWithDetails(
-        {
-          status: status as any,
-          priority: priority as any,
-        },
+        filters,
         { page: validPage, limit: validLimit }
       );
 
@@ -82,11 +89,18 @@ export class AdminController {
         return;
       }
 
-      const updated = await adminService.assignIncident(parseInt(incidentId as string, 10), {
-        assigned_technician,
-        assigned_to,
-        priority,
-      });
+      const assignee = assigned_to ?? assigned_technician;
+      if (assignee !== undefined && (!Number.isInteger(Number(assignee)) || Number(assignee) <= 0)) {
+        res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'assigned_to must be a positive integer' });
+        return;
+      }
+      const assignment: { assigned_technician?: number; assigned_to?: number; priority?: string } = {};
+      if (assignee !== undefined) {
+        assignment.assigned_technician = Number(assignee);
+        assignment.assigned_to = Number(assignee);
+      }
+      if (priority) assignment.priority = priority;
+      const updated = await adminService.assignIncident(parseInt(incidentId as string, 10), assignment, req.user!.id);
 
       if (!updated) {
         res.status(HTTP_STATUS.NOT_FOUND).json({ error: ERROR_MESSAGES.NOT_FOUND });
@@ -100,6 +114,10 @@ export class AdminController {
       });
     } catch (error) {
       console.error('Assign incident error:', error);
+      if (error instanceof Error && error.message === 'ASSIGNEE_NOT_FOUND') {
+        res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Nhân viên không tồn tại hoặc đã bị vô hiệu hóa' });
+        return;
+      }
       res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
         error: ERROR_MESSAGES.INTERNAL_ERROR,
       });
@@ -115,14 +133,14 @@ export class AdminController {
       const { incidentId } = req.params;
       const { status } = req.body;
 
-      if (!status || !['open', 'in_progress', 'on_hold', 'completed'].includes(status)) {
+      if (!status || !['pending', 'assigned', 'in_progress', 'completed', 'rejected'].includes(status)) {
         res.status(HTTP_STATUS.BAD_REQUEST).json({
-          error: 'Invalid status. Must be: open, in_progress, on_hold, or completed'
+          error: 'Invalid status. Must be: pending, assigned, in_progress, completed, or rejected'
         });
         return;
       }
 
-      const updated = await adminService.updateIncidentStatus(parseInt(incidentId as string, 10), status);
+      const updated = await adminService.updateIncidentStatus(parseInt(incidentId as string, 10), status, req.user!.id);
 
       if (!updated) {
         res.status(HTTP_STATUS.NOT_FOUND).json({ error: ERROR_MESSAGES.NOT_FOUND });
@@ -139,6 +157,72 @@ export class AdminController {
       res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
         error: ERROR_MESSAGES.INTERNAL_ERROR,
       });
+    }
+  }
+
+  async getStaff(_req: AuthRequest, res: Response): Promise<void> {
+    try {
+      res.json({ success: true, data: await adminService.getStaff() });
+    } catch (error) {
+      console.error('Get staff error:', error);
+      res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({ error: ERROR_MESSAGES.INTERNAL_ERROR });
+    }
+  }
+
+  async getIncidentHistory(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const history = await adminService.getIncidentHistory(Number(req.params.incidentId));
+      res.json({ success: true, data: history });
+    } catch (error) {
+      console.error('Get incident history error:', error);
+      res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({ error: ERROR_MESSAGES.INTERNAL_ERROR });
+    }
+  }
+
+  async getIncidentNotes(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      res.json({ success: true, data: await adminService.getIncidentNotes(Number(req.params.incidentId)) });
+    } catch (error) {
+      console.error('Get incident notes error:', error);
+      res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({ error: ERROR_MESSAGES.INTERNAL_ERROR });
+    }
+  }
+
+  async addIncidentNote(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const { note } = req.body;
+      if (typeof note !== 'string' || !note.trim()) {
+        res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'note is required' });
+        return;
+      }
+      const created = await adminService.addIncidentNote(Number(req.params.incidentId), note.trim(), req.user!.id);
+      if (!created) {
+        res.status(HTTP_STATUS.NOT_FOUND).json({ error: ERROR_MESSAGES.NOT_FOUND });
+        return;
+      }
+      res.status(HTTP_STATUS.CREATED).json({ success: true, data: created });
+    } catch (error) {
+      console.error('Add incident note error:', error);
+      res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({ error: ERROR_MESSAGES.INTERNAL_ERROR });
+    }
+  }
+
+  async sendNotification(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const { user_id, incident_id, title, message, type = 'system' } = req.body;
+      if (!Number.isInteger(Number(user_id)) || !title?.trim() || !message?.trim()) {
+        res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'user_id, title, and message are required' });
+        return;
+      }
+      if (!['status_update', 'new_reply', 'system', 'reminder'].includes(type)) {
+        res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Invalid notification type' });
+        return;
+      }
+      const notification = await notificationService.createNotification(Number(user_id), title.trim(), message.trim(), type, incident_id ? Number(incident_id) : undefined);
+      res.status(HTTP_STATUS.CREATED).json({ success: true, data: notification });
+    } catch (error) {
+      console.error('Send notification error:', error);
+      res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({ error: ERROR_MESSAGES.INTERNAL_ERROR });
     }
   }
 

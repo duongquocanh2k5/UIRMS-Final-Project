@@ -4,3 +4,5 @@
 **/.expo/
 **/.env
 **/.git_embedded_backup/
+backend/uploads/
+mobile-app/.tsupgrader/

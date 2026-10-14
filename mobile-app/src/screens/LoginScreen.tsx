@@ -1,5 +1,6 @@
 ﻿import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, Button, StyleSheet, Alert, TouchableOpacity } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useAuth } from '../context/AuthContext';
@@ -15,6 +16,7 @@ export default function LoginScreen() {
   const { login } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
 
   const DEMO_EMAIL = 'demo@uirms.com';
   const DEMO_PASSWORD = 'Demo123!';
@@ -70,13 +72,23 @@ export default function LoginScreen() {
         autoCapitalize="none"
         keyboardType="email-address"
       />
-      <TextInput
-        style={styles.input}
-        placeholder="Mật khẩu"
-        value={password}
-        onChangeText={setPassword}
-        secureTextEntry
-      />
+      <View style={styles.passwordInputWrapper}>
+        <TextInput
+          style={[styles.input, styles.passwordInput]}
+          placeholder="Mật khẩu"
+          value={password}
+          onChangeText={setPassword}
+          secureTextEntry={!showPassword}
+        />
+        <TouchableOpacity
+          style={styles.eyeButton}
+          onPress={() => setShowPassword((visible) => !visible)}
+          accessibilityRole="button"
+          accessibilityLabel={showPassword ? 'Ẩn mật khẩu' : 'Hiển thị mật khẩu'}
+        >
+          <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={22} color="#64748b" />
+        </TouchableOpacity>
+      </View>
       <TouchableOpacity onPress={() => {
         try {
           navigation.navigate('ForgotPassword');
@@ -124,6 +136,21 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     backgroundColor: '#fff',
     width: '100%',
+  },
+  passwordInputWrapper: {
+    position: 'relative',
+  },
+  passwordInput: {
+    paddingRight: 48,
+  },
+  eyeButton: {
+    position: 'absolute',
+    right: 8,
+    top: 0,
+    bottom: 16,
+    width: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   buttonWrapper: {
     marginTop: 12,

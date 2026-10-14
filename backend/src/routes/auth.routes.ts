@@ -14,7 +14,7 @@ import { Router } from 'express';
 import { authController } from '../controllers/auth.controller';
 import { authenticateToken } from '../middlewares/auth.middleware';
 import { validateRequest } from '../middlewares/validateRequest';
-import { REGEX_PATTERNS } from '../config/constants';
+import { AdminRole, REGEX_PATTERNS } from '../config/constants';
 
 const router = Router();
 
@@ -40,6 +40,20 @@ router.post(
     password: { required: true, type: 'string' },
   }),
   (req, res) => authController.login(req, res)
+);
+
+router.post(
+  '/admin-login',
+  validateRequest({
+    emailOrUsername: { required: true, type: 'string' },
+    password: { required: true, type: 'string' },
+    role: {
+      required: true,
+      type: 'string',
+      custom: (value) => Object.values(AdminRole).includes(value as AdminRole),
+    },
+  }),
+  (req, res) => authController.adminLogin(req, res)
 );
 
 // Verify email

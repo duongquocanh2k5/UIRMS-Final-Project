@@ -17,7 +17,7 @@ export class IncidentController {
   async createIncident(req: AuthRequest, res: Response): Promise<void> {
     try {
       const userId = req.user?.id;
-      const { category_id, title, description, location_name, latitude, longitude, priority } = req.body;
+      const { category_id, title, description, location_name, district, latitude, longitude, priority } = req.body;
 
       if (!userId) {
         res.status(HTTP_STATUS.UNAUTHORIZED).json({ error: ERROR_MESSAGES.UNAUTHORIZED });
@@ -34,8 +34,10 @@ export class IncidentController {
         title,
         description,
         location_name,
+        district,
         latitude,
         longitude,
+        priority,
       });
 
       res.status(HTTP_STATUS.CREATED).json({
@@ -75,6 +77,30 @@ export class IncidentController {
       res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
         error: ERROR_MESSAGES.INTERNAL_ERROR,
       });
+    }
+  }
+
+  async uploadIncidentImage(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.user?.id;
+      const incidentId = parseInt(req.params.incidentId as string, 10);
+      const file = req.file;
+
+      if (!userId || !file) {
+        res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Ảnh tải lên không hợp lệ' });
+        return;
+      }
+
+      const saved = await incidentService.addIncidentImage(incidentId, userId, `/uploads/incidents/${file.filename}`);
+      if (!saved) {
+        res.status(HTTP_STATUS.NOT_FOUND).json({ error: ERROR_MESSAGES.NOT_FOUND });
+        return;
+      }
+
+      res.status(HTTP_STATUS.CREATED).json({ success: true, data: { image_url: `/uploads/incidents/${file.filename}` } });
+    } catch (error) {
+      console.error('Upload incident image error:', error);
+      res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({ error: ERROR_MESSAGES.INTERNAL_ERROR });
     }
   }
 
@@ -127,7 +153,7 @@ export class IncidentController {
 
       const { page: validPage, limit: validLimit } = validatePaginationParams(page, limit);
 
-       const { incidents, total } = await incidentService.getIncidents(
+      const { incidents, total } = await incidentService.getIncidents(
         { user_id: parseInt(userId as string, 10) },
         { page: validPage, limit: validLimit }
       );
@@ -253,8 +279,14 @@ export class IncidentController {
   async deleteIncident(req: AuthRequest, res: Response): Promise<void> {
     try {
       const { incidentId } = req.params;
+      const userId = req.user?.id;
 
-      const deleted = await incidentService.deleteIncident(parseInt(incidentId as string, 10));
+      if (!userId) {
+        res.status(HTTP_STATUS.UNAUTHORIZED).json({ error: ERROR_MESSAGES.UNAUTHORIZED });
+        return;
+      }
+
+      const deleted = await incidentService.deleteIncident(parseInt(incidentId as string, 10), userId);
 
       if (!deleted) {
         res.status(HTTP_STATUS.NOT_FOUND).json({ error: ERROR_MESSAGES.NOT_FOUND });

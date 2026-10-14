@@ -31,6 +31,11 @@ router.get('/dashboard/stats', (req, res) => adminController.getDashboardStats(r
 router.get('/incidents', (req, res) => adminController.getAllIncidents(req, res));
 router.post('/incidents/:incidentId/assign', (req, res) => adminController.assignIncident(req, res));
 router.patch('/incidents/:incidentId/status', (req, res) => adminController.updateIncidentStatus(req, res));
+router.get('/staff', (req, res) => adminController.getStaff(req, res));
+router.get('/incidents/:incidentId/history', (req, res) => adminController.getIncidentHistory(req, res));
+router.get('/incidents/:incidentId/notes', (req, res) => adminController.getIncidentNotes(req, res));
+router.post('/incidents/:incidentId/notes', (req, res) => adminController.addIncidentNote(req, res));
+router.post('/notifications', (req, res) => adminController.sendNotification(req, res));
 
 // Analytics
 router.get('/analytics/incidents', (req, res) => adminController.getIncidentAnalytics(req, res));

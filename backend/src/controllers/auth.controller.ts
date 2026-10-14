@@ -10,7 +10,56 @@ import { HTTP_STATUS, ERROR_MESSAGES, SUCCESS_MESSAGES } from '../config/constan
 import { isValidEmail, isValidPhoneNumber, isValidPassword, isValidIdentityNumber } from '../utils/validators';
 import { generateToken } from '../utils/jwt';
 
+const ADMIN_LOGIN_MAX_ATTEMPTS = 5;
+const ADMIN_LOGIN_WINDOW_MS = 10 * 60 * 1000;
+const ADMIN_LOGIN_LOCK_MS = 10 * 60 * 1000;
+
+interface AdminLoginAttempt {
+  attempts: number;
+  windowStartedAt: number;
+  lockedUntil?: number;
+}
+
+const adminLoginAttempts = new Map<string, AdminLoginAttempt>();
+
 export class AuthController {
+  async registerAdmin(req: Request, res: Response): Promise<void> {
+    try {
+      const { username, email, password, full_name } = req.body;
+
+      if (!username || username.trim().length < 3) {
+        res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Username must be at least 3 characters' });
+        return;
+      }
+      if (!email || !isValidEmail(email)) {
+        res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Invalid email address format' });
+        return;
+      }
+      if (!password || !isValidPassword(password)) {
+        res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Password must contain at least 8 characters, 1 uppercase, 1 number, and 1 special character' });
+        return;
+      }
+      if (!full_name || full_name.trim().length < 2) {
+        res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Full name must be at least 2 characters' });
+        return;
+      }
+
+      const admin = await authService.registerAdmin({ username: username.trim(), email: email.trim().toLowerCase(), password, full_name: full_name.trim() });
+      res.status(HTTP_STATUS.CREATED).json({
+        success: true,
+        message: 'Admin account created successfully',
+        data: { admin: { id: admin.id, username: admin.username, email: admin.email, full_name: admin.full_name, role: admin.role } },
+      });
+    } catch (error: any) {
+      console.error('Admin register error:', error);
+      if (error.message?.includes('already exists')) {
+        res.status(HTTP_STATUS.CONFLICT).json({ error: error.message });
+        return;
+      }
+      res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({ error: ERROR_MESSAGES.INTERNAL_ERROR });
+    }
+  }
+
   /**
    * Register new user
    * POST /auth/register
@@ -142,6 +191,57 @@ export class AuthController {
       res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
         error: ERROR_MESSAGES.INTERNAL_ERROR,
       });
+    }
+  }
+
+  async adminLogin(req: Request, res: Response): Promise<void> {
+    try {
+      const { emailOrUsername, password, role } = req.body;
+      if (!emailOrUsername || !password || !role) {
+        res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Email/username, mật khẩu và vai trò là bắt buộc' });
+        return;
+      }
+
+      const now = Date.now();
+      const identifier = String(emailOrUsername).trim().toLowerCase();
+      const attemptKey = identifier;
+      for (const [key, attempt] of adminLoginAttempts) {
+        if ((attempt.lockedUntil && attempt.lockedUntil <= now) || (!attempt.lockedUntil && now - attempt.windowStartedAt >= ADMIN_LOGIN_WINDOW_MS)) {
+          adminLoginAttempts.delete(key);
+        }
+      }
+
+      const currentAttempt = adminLoginAttempts.get(attemptKey);
+      if (currentAttempt?.lockedUntil && currentAttempt.lockedUntil > now) {
+        const retryAfterSeconds = Math.ceil((currentAttempt.lockedUntil - now) / 1000);
+        res.set('Retry-After', String(retryAfterSeconds));
+        res.status(429).json({ error: 'Tài khoản tạm khóa do đăng nhập sai quá nhiều lần. Vui lòng thử lại sau 10 phút.' });
+        return;
+      }
+
+      const result = await authService.loginAdmin(emailOrUsername, password, role);
+      if (!result) {
+        const attempt = currentAttempt && now - currentAttempt.windowStartedAt < ADMIN_LOGIN_WINDOW_MS
+          ? currentAttempt
+          : { attempts: 0, windowStartedAt: now };
+        attempt.attempts += 1;
+        if (attempt.attempts >= ADMIN_LOGIN_MAX_ATTEMPTS) {
+          attempt.lockedUntil = now + ADMIN_LOGIN_LOCK_MS;
+          res.set('Retry-After', String(ADMIN_LOGIN_LOCK_MS / 1000));
+          adminLoginAttempts.set(attemptKey, attempt);
+          res.status(429).json({ error: 'Tài khoản tạm khóa do đăng nhập sai quá nhiều lần. Vui lòng thử lại sau 10 phút.' });
+          return;
+        }
+        adminLoginAttempts.set(attemptKey, attempt);
+        res.status(HTTP_STATUS.UNAUTHORIZED).json({ error: 'Thông tin đăng nhập admin không hợp lệ' });
+        return;
+      }
+
+      adminLoginAttempts.delete(attemptKey);
+      res.json({ success: true, message: SUCCESS_MESSAGES.LOGIN_SUCCESS, data: { token: result.token, user: { id: result.admin.id, email: result.admin.email, username: result.admin.username, full_name: result.admin.full_name, role: result.admin.role } } });
+    } catch (error) {
+      console.error('Admin login error:', error);
+      res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({ error: ERROR_MESSAGES.INTERNAL_ERROR });
     }
   }
 

@@ -27,10 +27,11 @@ export class NotificationService {
     actionUrl?: string
   ): Promise<Notification> {
     const result = await query<Notification>(
-      `INSERT INTO notifications (user_id, incident_id, title, message, notification_type, action_url)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING *;`,
-      [userId, incidentId || null, title, message, notificationType, actionUrl]
+      `INSERT INTO notifications (user_id, incident_id, title, message, type)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, user_id, incident_id, title, message, type AS notification_type,
+                 is_read, created_at, read_at;`,
+      [userId, incidentId || null, title, message, notificationType]
     );
 
     return result[0]!;
@@ -51,7 +52,9 @@ export class NotificationService {
 
     const offset = calculateOffset(pagination.page, pagination.limit);
     const notifications = await query<Notification>(
-      `SELECT * FROM notifications WHERE user_id = $1
+      `SELECT id, user_id, incident_id, title, message, type AS notification_type,
+          is_read, created_at, read_at
+       FROM notifications WHERE user_id = $1
        ORDER BY created_at DESC
        LIMIT $2 OFFSET $3;`,
       [userId, pagination.limit, offset]
@@ -65,7 +68,7 @@ export class NotificationService {
    */
   async markAsRead(notificationId: number): Promise<Notification | null> {
     return queryOne<Notification>(
-      `UPDATE notifications SET is_read = true, read_at = NOW(), updated_at = NOW()
+      `UPDATE notifications SET is_read = true, read_at = NOW()
        WHERE id = $1 RETURNING *;`,
       [notificationId]
     );
@@ -76,7 +79,7 @@ export class NotificationService {
    */
   async markAllAsRead(userId: number): Promise<number> {
     const result = await query<{ count: string }>(
-      `UPDATE notifications SET is_read = true, read_at = NOW(), updated_at = NOW()
+      `UPDATE notifications SET is_read = true, read_at = NOW()
        WHERE user_id = $1 AND is_read = false
        RETURNING id;`,
       [userId]
@@ -167,7 +170,7 @@ export class NotificationService {
       userId,
       'Incident Created',
       `Your incident "${title}" has been successfully reported`,
-      'incident_created',
+      'system',
       incidentId,
       `/incidents/${incidentId}`
     );
@@ -185,7 +188,7 @@ export class NotificationService {
       userId,
       'Incident Status Updated',
       `Your incident status has been updated to: ${newStatus}`,
-      'incident_status_updated',
+      'status_update',
       incidentId,
       `/incidents/${incidentId}`
     );
@@ -203,7 +206,7 @@ export class NotificationService {
       technicianId,
       'New Assignment',
       `You have been assigned to incident #${incidentId}`,
-      'incident_assigned',
+      'system',
       incidentId,
       `/incidents/${incidentId}`
     );

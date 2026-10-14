@@ -12,6 +12,7 @@ import {
   ActivityIndicator,
   Alert,
   TouchableOpacity,
+  Image,
 } from 'react-native';
 import { apiClient } from '../services/api';
 
@@ -28,7 +29,17 @@ interface IncidentDetail {
   completed_at?: string;
   category_id: number;
   user_id: number;
+  image_urls?: string[];
 }
+
+const formatVietnamDateTime = (value: string) => new Date(value).toLocaleString('vi-VN', {
+  timeZone: 'Asia/Ho_Chi_Minh',
+  day: '2-digit',
+  month: '2-digit',
+  year: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+});
 
 export default function IncidentDetailScreen({ route, navigation }: any) {
   const { id } = route.params;
@@ -63,6 +74,24 @@ export default function IncidentDetailScreen({ route, navigation }: any) {
             loadIncident();
           } catch (error: any) {
             Alert.alert('Lỗi', 'Không thể cập nhật sự cố');
+          }
+        },
+      },
+    ]);
+  };
+
+  const handleDelete = () => {
+    Alert.alert('Xóa báo cáo?', 'Bạn có chắc muốn xóa báo cáo này không?', [
+      { text: 'Hủy', style: 'cancel' },
+      {
+        text: 'Xóa',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await apiClient.deleteIncident(id);
+            Alert.alert('Đã xóa báo cáo', 'Báo cáo đã được xóa thành công.', [{ text: 'Xong', onPress: () => navigation.goBack() }]);
+          } catch (error: any) {
+            Alert.alert('Không thể xóa', error.response?.data?.error || 'Vui lòng thử lại.');
           }
         },
       },
@@ -154,7 +183,7 @@ export default function IncidentDetailScreen({ route, navigation }: any) {
         <View style={styles.infoRow}>
           <Text style={styles.label}>Ngày báo cáo:</Text>
           <Text style={styles.value}>
-            {new Date(incident.created_at).toLocaleString('vi-VN')}
+            {formatVietnamDateTime(incident.created_at)}
           </Text>
         </View>
 
@@ -162,11 +191,22 @@ export default function IncidentDetailScreen({ route, navigation }: any) {
           <View style={styles.infoRow}>
             <Text style={styles.label}>Ngày hoàn thành:</Text>
             <Text style={styles.value}>
-              {new Date(incident.completed_at).toLocaleString('vi-VN')}
+              {formatVietnamDateTime(incident.completed_at)}
             </Text>
           </View>
         )}
       </View>
+
+      {incident.image_urls?.length ? (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Ảnh hiện trường</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.imageList}>
+            {incident.image_urls.map((imageUrl) => (
+              <Image key={imageUrl} source={{ uri: imageUrl }} style={styles.incidentImage} />
+            ))}
+          </ScrollView>
+        </View>
+      ) : null}
 
       {incident.description && (
         <View style={styles.section}>
@@ -185,6 +225,12 @@ export default function IncidentDetailScreen({ route, navigation }: any) {
           </TouchableOpacity>
         </View>
       )}
+
+      <View style={styles.section}>
+        <TouchableOpacity style={styles.deleteButton} onPress={handleDelete}>
+          <Text style={styles.deleteButtonText}>Xóa báo cáo này</Text>
+        </TouchableOpacity>
+      </View>
 
       <View style={styles.section}>
         <TouchableOpacity
@@ -238,6 +284,22 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
+  deleteButton: {
+    backgroundColor: '#FDE8E8',
+    padding: 14,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  deleteButtonText: {
+    color: '#B84A4A',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  deleteExpiredText: {
+    color: '#9AA6AC',
+    textAlign: 'center',
+    fontSize: 12,
+  },
   section: {
     backgroundColor: '#fff',
     margin: 12,
@@ -273,6 +335,16 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666',
     lineHeight: 20,
+  },
+  imageList: {
+    gap: 10,
+  },
+  incidentImage: {
+    width: 220,
+    height: 150,
+    borderRadius: 10,
+    resizeMode: 'cover',
+    backgroundColor: '#e5edef',
   },
   completeButton: {
     backgroundColor: '#10b981',

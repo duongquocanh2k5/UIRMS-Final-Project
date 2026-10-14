@@ -15,7 +15,7 @@ async function main(): Promise<void> {
     logger.info('Connecting to database...');
     try {
       await testConnection();
-      
+
       // Run database migrations only if connection successful
       logger.info('Running database migrations...');
       await runMigrations();
@@ -29,7 +29,7 @@ async function main(): Promise<void> {
 
     // Start server
     const port = env.port;
-    app.listen(port, () => {
+    app.listen(port, '0.0.0.0', () => {
       logger.info(`✓ Server running on http://localhost:${port}`);
       logger.info(`✓ Environment: ${env.nodeEnv}`);
       logger.info(`✓ API available at http://localhost:${port}/api`);

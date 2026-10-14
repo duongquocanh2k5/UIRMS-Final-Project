@@ -13,6 +13,7 @@ interface EnvironmentConfig {
   databaseUrl: string;
   jwtSecret: string;
   jwtExpiry: string;
+  adminJwtExpiry: string;
   corsOrigin: string[];
   geminiApiKey: string;
   otpExpiryMinutes: number;
@@ -53,6 +54,7 @@ function getEnvironment(): EnvironmentConfig {
   const nodeEnv = (process.env.NODE_ENV || 'development') as 'development' | 'production' | 'test';
   const port = parseInt(process.env.PORT || '5000', 10);
   const jwtExpiry = process.env.JWT_EXPIRY || '7d';
+  const adminJwtExpiry = process.env.ADMIN_JWT_EXPIRY || '8h';
   const otpExpiryMinutes = parseInt(process.env.OTP_EXPIRY_MINUTES || '10', 10);
   const maxFileSizeMb = parseInt(process.env.MAX_FILE_SIZE_MB || '10', 10);
 
@@ -71,6 +73,7 @@ function getEnvironment(): EnvironmentConfig {
     databaseUrl: process.env.DATABASE_URL!,
     jwtSecret: process.env.JWT_SECRET!,
     jwtExpiry,
+    adminJwtExpiry,
     corsOrigin,
     geminiApiKey: process.env.GEMINI_API_KEY!,
     otpExpiryMinutes,

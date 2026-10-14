@@ -11,7 +11,18 @@ import { env } from '../config/environment';
  */
 export function getCorsOptions(): CorsOptions {
   return {
-    origin: env.corsOrigin,
+    origin: (origin, callback) => {
+      const isLocalDevelopmentOrigin = Boolean(
+        origin && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)
+      );
+
+      if (!origin || env.corsOrigin.includes(origin) || isLocalDevelopmentOrigin) {
+        callback(null, true);
+        return;
+      }
+
+      callback(new Error('Origin not allowed by CORS'));
+    },
     credentials: true,
     optionsSuccessStatus: 200,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],

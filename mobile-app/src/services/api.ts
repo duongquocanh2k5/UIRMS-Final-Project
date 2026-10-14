@@ -9,16 +9,23 @@ import { Platform } from 'react-native';
 
 // Get API base URL based on platform and environment
 const getAPIBaseURL = () => {
-  // For web, use relative path to same origin
+  // Expo web runs on a different port than the API during development.
   if (Platform.OS === 'web') {
-    return '/api';
+    return process.env.EXPO_PUBLIC_API_URL || 'http://localhost:5000/api';
   }
   // For mobile (iOS/Android), use environment variable or default
   // During development, update this to your machine's IP (e.g., http://192.168.1.100:5000/api)
-  return process.env.EXPO_PUBLIC_API_URL || 'http://10.0.2.2:5000/api'; // 10.0.2.2 is Android emulator's host
+  return process.env.EXPO_PUBLIC_API_URL || 'http://192.168.1.206:5000/api';
 };
 
 const API_BASE_URL = getAPIBaseURL();
+const API_ORIGIN = API_BASE_URL.replace(/\/api\/?$/, '');
+
+const resolveImageUrl = (imageUrl: string) => imageUrl.startsWith('http') ? imageUrl : `${API_ORIGIN}${imageUrl}`;
+const normalizeIncidentImages = (data: any) => {
+  if (data?.image_urls) data.image_urls = data.image_urls.map(resolveImageUrl);
+  return data;
+};
 
 class ApiClient {
   private client: AxiosInstance;
@@ -92,6 +99,7 @@ class ApiClient {
     location_name?: string;
     latitude: number;
     longitude: number;
+    priority?: 'low' | 'medium' | 'high';
   }) {
     const response = await this.client.post('/incidents', data);
     return response.data;
@@ -110,11 +118,22 @@ class ApiClient {
     const response = await this.client.get(`/incidents/user/${userId}`, {
       params: { page, limit },
     });
+    response.data.data = response.data.data?.map(normalizeIncidentImages) || [];
     return response.data;
   }
 
   async getIncidentById(id: number) {
     const response = await this.client.get(`/incidents/${id}`);
+    response.data.data = normalizeIncidentImages(response.data.data);
+    return response.data;
+  }
+
+  async uploadIncidentImage(incidentId: number, imageUri: string) {
+    const formData = new FormData();
+    formData.append('image', { uri: imageUri, name: `incident-${Date.now()}.jpg`, type: 'image/jpeg' } as any);
+    const response = await this.client.post(`/incidents/${incidentId}/images`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
     return response.data;
   }
 
@@ -127,6 +146,11 @@ class ApiClient {
 
   async completeIncident(id: number) {
     const response = await this.client.patch(`/incidents/${id}/complete`, {});
+    return response.data;
+  }
+
+  async deleteIncident(id: number) {
+    const response = await this.client.delete(`/incidents/${id}`);
     return response.data;
   }
 
