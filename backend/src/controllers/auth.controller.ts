@@ -23,43 +23,6 @@ interface AdminLoginAttempt {
 const adminLoginAttempts = new Map<string, AdminLoginAttempt>();
 
 export class AuthController {
-  async registerAdmin(req: Request, res: Response): Promise<void> {
-    try {
-      const { username, email, password, full_name } = req.body;
-
-      if (!username || username.trim().length < 3) {
-        res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Username must be at least 3 characters' });
-        return;
-      }
-      if (!email || !isValidEmail(email)) {
-        res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Invalid email address format' });
-        return;
-      }
-      if (!password || !isValidPassword(password)) {
-        res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Password must contain at least 8 characters, 1 uppercase, 1 number, and 1 special character' });
-        return;
-      }
-      if (!full_name || full_name.trim().length < 2) {
-        res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Full name must be at least 2 characters' });
-        return;
-      }
-
-      const admin = await authService.registerAdmin({ username: username.trim(), email: email.trim().toLowerCase(), password, full_name: full_name.trim() });
-      res.status(HTTP_STATUS.CREATED).json({
-        success: true,
-        message: 'Admin account created successfully',
-        data: { admin: { id: admin.id, username: admin.username, email: admin.email, full_name: admin.full_name, role: admin.role } },
-      });
-    } catch (error: any) {
-      console.error('Admin register error:', error);
-      if (error.message?.includes('already exists')) {
-        res.status(HTTP_STATUS.CONFLICT).json({ error: error.message });
-        return;
-      }
-      res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({ error: ERROR_MESSAGES.INTERNAL_ERROR });
-    }
-  }
-
   /**
    * Register new user
    * POST /auth/register

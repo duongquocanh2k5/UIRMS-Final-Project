@@ -15,8 +15,6 @@ interface AuthContextValue {
     token: string | null;
     isAuthenticated: boolean;
     login: (email: string, password: string, role: AdminRole) => Promise<void>;
-    register: (name: string, email: string, password: string) => Promise<void>;
-    forgotPassword: (email: string) => Promise<void>;
     logout: () => void;
     updateUser: (updates: Partial<AdminUser>) => void;
 }
@@ -63,16 +61,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         localStorage.setItem('adminLastActivity', String(Date.now()));
         setUser(nextUser);
         setToken(response.data.token);
-    };
-
-    const register = async (name: string, email: string, password: string) => {
-        if (!name || !email || !password) throw new Error('Vui lòng nhập đầy đủ thông tin.');
-        const username = email.split('@')[0];
-        await adminApi.registerAdmin({ username, email, password, full_name: name });
-    };
-
-    const forgotPassword = async (email: string) => {
-        if (!email) throw new Error('Vui lòng nhập email.');
     };
 
     const logout = useCallback(() => {
@@ -123,6 +111,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         };
     }, [token, logout]);
 
+    useEffect(() => {
+        if (!token) return;
+
+        const sendPresence = () => {
+            if (document.visibilityState === 'visible') void adminApi.updatePresence().catch(() => { });
+        };
+        sendPresence();
+        const presenceTimer = window.setInterval(sendPresence, 30_000);
+        document.addEventListener('visibilitychange', sendPresence);
+
+        return () => {
+            window.clearInterval(presenceTimer);
+            document.removeEventListener('visibilitychange', sendPresence);
+        };
+    }, [token]);
+
     const updateUser = useCallback((updates: Partial<AdminUser>) => {
         setUser((current) => {
             const nextUser = { ...current, ...updates };
@@ -131,7 +135,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         });
     }, []);
 
-    return <AuthContext.Provider value={{ user, token, isAuthenticated: Boolean(token), login, register, forgotPassword, logout, updateUser }}>{children}</AuthContext.Provider>;
+    return <AuthContext.Provider value={{ user, token, isAuthenticated: Boolean(token), login, logout, updateUser }}>{children}</AuthContext.Provider>;
 }
 
 // eslint-disable-next-line react-refresh/only-export-components

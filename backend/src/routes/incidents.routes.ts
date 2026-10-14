@@ -14,33 +14,35 @@
 
 import { Router } from 'express';
 import { incidentController } from '../controllers/incident.controller';
-import { authenticateToken } from '../middlewares/auth.middleware';
+import { authenticateOptionalToken, authenticateToken, authorizeRole } from '../middlewares/auth.middleware';
+import { AdminRole } from '../config/constants';
 import { validateRequest } from '../middlewares/validateRequest';
 import { incidentImageUpload } from '../middlewares/incidentUpload';
 
 const router = Router();
 
 // Get statistics (before /:id to avoid route conflict)
-router.get('/stats/summary', (req, res) => incidentController.getIncidentStats(req, res));
+router.get('/stats/summary', authenticateOptionalToken, (req, res) => incidentController.getIncidentStats(req, res));
 
 // Get heatmap data
-router.get('/heatmap/data', (req, res) => incidentController.getHeatmapData(req, res));
+router.get('/heatmap/data', authenticateOptionalToken, (req, res) => incidentController.getHeatmapData(req, res));
 
 // Get nearby incidents
-router.get('/search/nearby', (req, res) => incidentController.getNearbyIncidents(req, res));
+router.get('/search/nearby', authenticateOptionalToken, (req, res) => incidentController.getNearbyIncidents(req, res));
 
 // Get user's incidents
-router.get('/user/:userId', (req, res) => incidentController.getUserIncidents(req, res));
+router.get('/user/:userId', authenticateOptionalToken, (req, res) => incidentController.getUserIncidents(req, res));
 
 // Get all incidents
-router.get('/', (req, res) => incidentController.getIncidents(req, res));
+router.get('/', authenticateOptionalToken, (req, res) => incidentController.getIncidents(req, res));
 
 // Get incident by ID
-router.get('/:incidentId', (req, res) => incidentController.getIncident(req, res));
+router.get('/:incidentId', authenticateOptionalToken, (req, res) => incidentController.getIncident(req, res));
 
 router.post(
   '/:incidentId/images',
   authenticateToken,
+  authorizeRole('user'),
   incidentImageUpload.single('image'),
   (req, res) => incidentController.uploadIncidentImage(req, res)
 );
@@ -49,6 +51,7 @@ router.post(
 router.post(
   '/',
   authenticateToken,
+  authorizeRole('user'),
   validateRequest({
     category_id: { required: true, type: 'number' },
     title: { required: true, type: 'string', minLength: 3 },
@@ -64,6 +67,7 @@ router.post(
 router.put(
   '/:incidentId',
   authenticateToken,
+  authorizeRole('user', AdminRole.SUPER_ADMIN, AdminRole.MANAGER),
   (req, res) => incidentController.updateIncident(req, res)
 );
 
@@ -71,6 +75,7 @@ router.put(
 router.patch(
   '/:incidentId/complete',
   authenticateToken,
+  authorizeRole('user', AdminRole.SUPER_ADMIN, AdminRole.MANAGER),
   (req, res) => incidentController.completeIncident(req, res)
 );
 
@@ -78,6 +83,7 @@ router.patch(
 router.delete(
   '/:incidentId',
   authenticateToken,
+  authorizeRole('user', AdminRole.SUPER_ADMIN, AdminRole.MANAGER),
   (req, res) => incidentController.deleteIncident(req, res)
 );
 

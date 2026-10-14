@@ -22,10 +22,6 @@ export interface AdminLoginData {
 
 export type AdminRole = 'super_admin' | 'manager' | 'technician';
 
-export interface AdminRegisterData {
-    admin: { id: number; username: string; email: string; full_name: string; role: string };
-}
-
 export interface AdminIncident {
     id: number;
     user_id?: number;
@@ -41,11 +37,26 @@ export interface AdminIncident {
     priority: 'low' | 'medium' | 'high' | 'critical';
     assigned_to?: number | null;
     assigned_technician?: string;
+    ai_confidence?: number | string | null;
+    ai_suggested_category?: number | null;
+    ai_suggested_category_name?: string | null;
+    is_duplicate?: boolean;
+    duplicate_of?: number | null;
+    duplicate_of_title?: string | null;
+    nearby_incident_count?: number;
+    images?: AdminIncidentImage[];
     created_at: string;
     updated_at: string;
     latitude?: number;
     longitude?: number;
     image_urls?: string[];
+}
+
+export interface AdminIncidentImage {
+    id: number;
+    image_url: string;
+    is_before: boolean;
+    created_at: string;
 }
 
 export interface AdminIncidentHistory {
@@ -77,6 +88,7 @@ export interface AssignableAdmin {
     full_name: string | null;
     role: string;
     is_active: boolean;
+    is_online: boolean;
 }
 
 export interface AdminStats {
@@ -87,6 +99,12 @@ export interface AdminStats {
     completedIncidents: number;
     urgentIncidents: number;
     highPriorityCount: number;
+}
+
+export interface HeatmapPoint {
+    lat: number;
+    lng: number;
+    count: number;
 }
 
 export interface StatsRange {
@@ -185,6 +203,13 @@ export interface CreateStaffPayload {
     password: string;
 }
 
+export interface UpdateStaffPayload {
+    name?: string;
+    phone?: string | null;
+    department?: string | null;
+    is_active?: boolean;
+}
+
 export interface AdminProfile {
     id: number;
     username: string;
@@ -247,6 +272,17 @@ function normalizeImages<T extends { image_urls?: string[] }>(item: T) {
     return item.image_urls ? { ...item, image_urls: item.image_urls.map((url) => url.startsWith('http') ? url : `${apiOrigin}${url}`) } : item;
 }
 
+function normalizeIncident(item: AdminIncident): AdminIncident {
+    const normalized = normalizeImages(item);
+    return {
+        ...normalized,
+        images: item.images?.map((image) => ({
+            ...image,
+            image_url: image.image_url.startsWith('http') ? image.image_url : `${apiOrigin}${image.image_url}`,
+        })),
+    };
+}
+
 function normalizeStaffAvatar<T extends { avatar_url: string | null }>(item: T): T {
     if (!item.avatar_url || item.avatar_url.startsWith('http')) return item;
     return { ...item, avatar_url: `${apiOrigin}/${item.avatar_url.replace(/^\/+/, '')}` };
@@ -268,7 +304,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     const response = await fetch(`${API_BASE_URL}${path}`, {
         ...options,
         headers: {
-            'Content-Type': 'application/json',
+            ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
             ...options.headers,
         },
@@ -295,20 +331,20 @@ function queryString(params: Record<string, string | number | undefined>) {
 
 export const adminApi = {
     adminLogin: (emailOrUsername: string, password: string, role: AdminRole) => request<ApiResponse<AdminLoginData>>('/auth/admin-login', { method: 'POST', body: JSON.stringify({ emailOrUsername, password, role }) }),
-    registerAdmin: (payload: { username: string; email: string; password: string; full_name: string }) => request<ApiResponse<AdminRegisterData>>('/admin/register', { method: 'POST', body: JSON.stringify(payload) }),
     getHealth: () => request<{ status: string; timestamp: string }>('/health'),
     getDashboardStats: () => request<ApiResponse<AdminStats>>('/admin/dashboard/stats'),
     getIncidents: (page = 1, limit = 10, status?: string, priority?: string, categoryId?: number, search?: string, fromDate?: string, toDate?: string) => request<PaginatedResponse<AdminIncident>>(`/admin/incidents${queryString({ page, limit, status, priority, category_id: categoryId, search, from_date: fromDate, to_date: toDate })}`),
-    getIncident: async (incidentId: number) => { const response = await request<ApiResponse<AdminIncident>>(`/incidents/${incidentId}`); return { ...response, data: normalizeImages(response.data) }; },
+    getIncident: async (incidentId: number) => { const response = await request<ApiResponse<AdminIncident>>(`/admin/incidents/${incidentId}`); return { ...response, data: normalizeIncident(response.data) }; },
     getAssignableStaff: () => request<ApiResponse<AssignableAdmin[]>>('/admin/staff'),
-    assignIncident: (incidentId: number, payload: { assigned_technician?: string; assigned_to?: number; priority?: string }) => request<ApiResponse<unknown>>(`/admin/incidents/${incidentId}/assign`, { method: 'POST', body: JSON.stringify(payload) }),
-    updateIncidentStatus: (incidentId: number, status: string) => request<ApiResponse<unknown>>(`/admin/incidents/${incidentId}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+    assignIncident: (incidentId: number, payload: { assigned_technician?: string; assigned_to?: number | null; priority?: string }) => request<ApiResponse<unknown>>(`/admin/incidents/${incidentId}/assign`, { method: 'POST', body: JSON.stringify(payload) }),
+    updateIncidentStatus: (incidentId: number, status: string, rejectionReason?: string) => request<ApiResponse<unknown>>(`/admin/incidents/${incidentId}/status`, { method: 'PATCH', body: JSON.stringify({ status, ...(rejectionReason ? { rejection_reason: rejectionReason } : {}) }) }),
+    uploadIncidentAfterImage: (incidentId: number, file: File) => { const formData = new FormData(); formData.append('image', file); return request<ApiResponse<AdminIncidentImage>>(`/admin/incidents/${incidentId}/images/after`, { method: 'POST', body: formData }); },
     getIncidentHistory: (incidentId: number) => request<ApiResponse<AdminIncidentHistory[]>>(`/admin/incidents/${incidentId}/history`),
     getIncidentNotes: (incidentId: number) => request<ApiResponse<AdminIncidentNote[]>>(`/admin/incidents/${incidentId}/notes`),
     addIncidentNote: (incidentId: number, note: string) => request<ApiResponse<AdminIncidentNote>>(`/admin/incidents/${incidentId}/notes`, { method: 'POST', body: JSON.stringify({ note }) }),
     sendAdminNotification: (payload: { user_id: number; incident_id: number; title: string; message: string; type: 'status_update' | 'new_reply' | 'system' | 'reminder' }) => request<ApiResponse<unknown>>('/admin/notifications', { method: 'POST', body: JSON.stringify(payload) }),
     getAnalytics: (period: 'day' | 'week' | 'month' = 'week') => request<ApiResponse<unknown>>(`/admin/analytics/incidents?period=${period}`),
-    getHeatmap: () => request<ApiResponse<unknown>>('/admin/incidents/heatmap'),
+    getHeatmap: () => request<ApiResponse<HeatmapPoint[]>>('/admin/incidents/heatmap'),
     getActiveTechnicians: () => request<ApiResponse<unknown>>('/admin/technicians/active'),
     getTechnicianWorkload: () => request<ApiResponse<unknown>>('/admin/technicians/workload'),
     getPerformanceMetrics: () => request<ApiResponse<unknown>>('/admin/metrics/performance'),
@@ -325,6 +361,7 @@ export const adminApi = {
         return { ...response, data: normalizeStaffAvatar(response.data) };
     },
     createStaff: (payload: CreateStaffPayload) => request<ApiResponse<StaffCreateResult>>('/staff', { method: 'POST', body: JSON.stringify(payload) }),
+    updateStaff: (staffId: number, payload: UpdateStaffPayload) => request<ApiResponse<StaffCreateResult>>(`/staff/${staffId}`, { method: 'PATCH', body: JSON.stringify(payload) }),
     getAdminProfile: async () => {
         const response = await request<ApiResponse<AdminProfile>>('/admins/me');
         return { ...response, data: normalizeStaffAvatar(response.data) };
@@ -334,6 +371,7 @@ export const adminApi = {
         return { ...response, data: normalizeStaffAvatar(response.data) };
     },
     changeAdminPassword: (payload: { currentPassword: string; newPassword: string }) => request<ApiResponse<{ message: string }>>('/admins/me/password', { method: 'PATCH', body: JSON.stringify(payload) }),
+    updatePresence: () => request<ApiResponse<{ success: boolean }>>('/admins/me/presence', { method: 'POST' }),
     getCategories: () => request<ApiResponse<AdminCategory[]>>('/categories'),
     createCategory: (payload: CategoryPayload) => request<ApiResponse<AdminCategory>>('/categories', { method: 'POST', body: JSON.stringify(payload) }),
     updateCategory: (id: number, payload: Partial<CategoryPayload>) => request<ApiResponse<AdminCategory>>(`/categories/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),

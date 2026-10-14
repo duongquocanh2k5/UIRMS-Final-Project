@@ -1,4 +1,5 @@
-import { TileLayer } from 'react-leaflet';
+import { useEffect } from 'react';
+import { TileLayer, useMap } from 'react-leaflet';
 
 export type MapLayer = 'street' | 'satellite';
 
@@ -8,10 +9,30 @@ interface MapLayersProps {
     url?: string;
 }
 
-export default function MapLayers({ layer }: MapLayersProps) {
-    if (layer !== 'street') {
-        return <TileLayer attribution="Tiles &copy; Esri" url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}" />;
+export default function MapLayers({ layer = 'street' }: MapLayersProps) {
+    const map = useMap();
+
+    useEffect(() => {
+        const timer = window.setTimeout(() => {
+            map.invalidateSize();
+        }, 150);
+        return () => window.clearTimeout(timer);
+    }, [map, layer]);
+
+    if (layer === 'satellite') {
+        return (
+            <TileLayer
+                attribution="Tiles &copy; Esri"
+                url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+            />
+        );
     }
 
-    return <TileLayer attribution="&copy; OpenStreetMap contributors" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />;
+    // Bản đồ đường phố miễn phí của Esri (Không cần API Key, không giới hạn)
+    return (
+        <TileLayer
+            attribution="Tiles &copy; Esri &mdash; Source: Esri, OpenStreetMap"
+            url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}"
+        />
+    );
 }

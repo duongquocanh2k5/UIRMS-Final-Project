@@ -7,6 +7,20 @@ import { UpdateAdminProfileInput } from '../types/index';
 export class AdminsController {
     constructor(private readonly service: AdminProfileService = adminProfileService) { }
 
+    async recordPresence(req: AuthRequest, res: Response): Promise<void> {
+        try {
+            const recorded = await this.service.recordPresence(req.user!.id);
+            if (!recorded) {
+                res.status(HTTP_STATUS.FORBIDDEN).json({ error: ERROR_MESSAGES.FORBIDDEN });
+                return;
+            }
+            res.status(HTTP_STATUS.OK).json({ success: true });
+        } catch (error) {
+            console.error('Record admin presence error:', error);
+            res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({ error: ERROR_MESSAGES.INTERNAL_ERROR });
+        }
+    }
+
     async getMe(req: AuthRequest, res: Response): Promise<void> {
         try {
             const admin = await this.service.getProfile(req.user!.id);

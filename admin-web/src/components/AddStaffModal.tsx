@@ -3,13 +3,14 @@ import { useState, type FormEvent } from 'react';
 import type { CreateStaffPayload } from '../services/api';
 
 interface AddStaffModalProps {
+    canCreateManagers: boolean;
     onClose: () => void;
     onCreate: (payload: CreateStaffPayload) => Promise<void>;
 }
 
 const fieldClass = 'mt-1.5 w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-neutral-900 outline-none transition placeholder:text-neutral-500 focus:border-primary focus:ring-2 focus:ring-primary/20';
 
-export default function AddStaffModal({ onClose, onCreate }: AddStaffModalProps) {
+export default function AddStaffModal({ canCreateManagers, onClose, onCreate }: AddStaffModalProps) {
     const [name, setName] = useState('');
     const [email, setEmail] = useState('');
     const [phone, setPhone] = useState('');
@@ -28,8 +29,8 @@ export default function AddStaffModal({ onClose, onCreate }: AddStaffModalProps)
                 name: name.trim(),
                 email: email.trim(),
                 phone: phone.trim() || undefined,
-                department: department.trim() || undefined,
-                role,
+                ...(canCreateManagers && department.trim() ? { department: department.trim() } : {}),
+                role: canCreateManagers ? role : 'technician',
                 password,
             });
             onClose();
@@ -50,8 +51,8 @@ export default function AddStaffModal({ onClose, onCreate }: AddStaffModalProps)
                         <label className="text-xs font-semibold text-neutral-600">Họ và tên<input required minLength={2} maxLength={255} value={name} onChange={(event) => setName(event.target.value)} className={fieldClass} placeholder="Nguyễn Văn A" /></label>
                         <label className="text-xs font-semibold text-neutral-600">Email<input required type="email" maxLength={255} value={email} onChange={(event) => setEmail(event.target.value)} className={fieldClass} placeholder="nhanvien@uirms.vn" /></label>
                         <label className="text-xs font-semibold text-neutral-600">Số điện thoại<input maxLength={20} value={phone} onChange={(event) => setPhone(event.target.value)} className={fieldClass} placeholder="090..." /></label>
-                        <label className="text-xs font-semibold text-neutral-600">Đơn vị<input maxLength={100} value={department} onChange={(event) => setDepartment(event.target.value)} className={fieldClass} placeholder="Đội KTĐT Quận 1" /></label>
-                        <label className="text-xs font-semibold text-neutral-600">Vai trò<select value={role} onChange={(event) => setRole(event.target.value as CreateStaffPayload['role'])} className={fieldClass}><option value="technician">Kỹ thuật viên</option><option value="manager">Điều phối viên</option></select></label>
+                        {canCreateManagers && <label className="text-xs font-semibold text-neutral-600">Đơn vị<input maxLength={100} value={department} onChange={(event) => setDepartment(event.target.value)} className={fieldClass} placeholder="Đội KTĐT Quận 1" /></label>}
+                        {canCreateManagers ? <label className="text-xs font-semibold text-neutral-600">Vai trò<select value={role} onChange={(event) => setRole(event.target.value as CreateStaffPayload['role'])} className={fieldClass}><option value="technician">Kỹ thuật viên</option><option value="manager">Điều phối viên</option></select></label> : <p className="text-xs font-semibold text-neutral-600">Vai trò<span className="mt-1.5 block rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm">Kỹ thuật viên, thuộc đơn vị của bạn</span></p>}
                         <label className="text-xs font-semibold text-neutral-600">Mật khẩu<input required type="password" minLength={8} value={password} onChange={(event) => setPassword(event.target.value)} className={fieldClass} autoComplete="new-password" /></label>
                     </div>
                     <div className="flex justify-end gap-2 border-t border-slate-100 pt-4"><button type="button" onClick={onClose} disabled={submitting} className="rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-semibold text-neutral-600 hover:bg-slate-50 disabled:opacity-50">Hủy</button><button type="submit" disabled={submitting} className="rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-primary/90 disabled:cursor-wait disabled:opacity-60">{submitting ? 'Đang tạo...' : 'Tạo nhân viên'}</button></div>

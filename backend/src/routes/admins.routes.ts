@@ -9,6 +9,7 @@ const router = Router();
 router.use(authenticateToken);
 router.use(authorizeRole(AdminRole.SUPER_ADMIN, AdminRole.MANAGER, AdminRole.TECHNICIAN));
 
+router.post('/me/presence', (req, res) => adminsController.recordPresence(req, res));
 router.get('/me', (req, res) => adminsController.getMe(req, res));
 router.patch(
     '/me',

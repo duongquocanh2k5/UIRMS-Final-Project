@@ -43,6 +43,5 @@ export default function Login() {
             <div className="flex justify-end"><Link to="/forgot-password" className="text-sm font-semibold text-primary hover:underline">Quên mật khẩu?</Link></div>
             <button type="submit" disabled={loading} className="flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-primary text-sm font-bold text-white transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60">{loading ? 'Đang đăng nhập...' : <>Đăng nhập <ArrowRight size={17} /></>}</button>
         </form>
-        <p className="mt-7 text-center text-sm text-neutral-500">Chưa có tài khoản? <Link to="/register" className="font-bold text-primary hover:underline">Đăng ký admin</Link></p>
     </div>;
 }

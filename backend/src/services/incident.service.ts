@@ -33,13 +33,16 @@ export class IncidentService {
   /**
    * Get incident by ID
    */
-  async getIncidentById(incidentId: number): Promise<Incident | null> {
+  async getIncidentById(incidentId: number, assignedTo?: number): Promise<Incident | null> {
+    const assignmentScope = assignedTo === undefined
+      ? ''
+      : 'AND (assigned_to = $2 OR assigned_technician = $2)';
     return queryOne<Incident>(
       `SELECT incidents.*,
               COALESCE((SELECT json_agg(image_url ORDER BY created_at)
                         FROM incident_images WHERE incident_id = incidents.id), '[]') AS image_urls
-       FROM incidents WHERE id = $1 AND deleted_at IS NULL;`,
-      [incidentId]
+       FROM incidents WHERE id = $1 AND deleted_at IS NULL ${assignmentScope};`,
+      assignedTo === undefined ? [incidentId] : [incidentId, assignedTo]
     );
   }
 
@@ -80,6 +83,12 @@ export class IncidentService {
     if (filters.user_id !== undefined) {
       whereClause += ` AND user_id = $${paramCount}`;
       params.push(filters.user_id);
+      paramCount++;
+    }
+
+    if (filters.assigned_to !== undefined) {
+      whereClause += ` AND (assigned_to = $${paramCount} OR assigned_technician = $${paramCount})`;
+      params.push(filters.assigned_to);
       paramCount++;
     }
 
@@ -156,8 +165,12 @@ export class IncidentService {
   async getIncidentsNearLocation(
     latitude: number,
     longitude: number,
-    radiusMeters: number = 5000
+    radiusMeters: number = 5000,
+    assignedTo?: number
   ): Promise<Incident[]> {
+    const assignmentScope = assignedTo === undefined
+      ? ''
+      : 'AND (assigned_to = $4 OR assigned_technician = $4)';
     return query<Incident>(
       `SELECT * FROM incidents
        WHERE ST_DWithin(
@@ -165,9 +178,9 @@ export class IncidentService {
          ST_SetSRID(ST_Point($1, $2), 4326),
          $3
        )
-       AND deleted_at IS NULL
+      AND deleted_at IS NULL ${assignmentScope}
        ORDER BY created_at DESC;`,
-      [longitude, latitude, radiusMeters]
+      assignedTo === undefined ? [longitude, latitude, radiusMeters] : [longitude, latitude, radiusMeters, assignedTo]
     );
   }
 
@@ -203,21 +216,30 @@ export class IncidentService {
   /**
    * Get incident statistics
    */
-  async getIncidentStats(): Promise<{
+  async getIncidentStats(assignedTo?: number): Promise<{
     total: number;
     byStatus: Record<string, number>;
     byPriority: Record<string, number>;
     byCategory: Record<string, number>;
   }> {
+    const assignmentScope = assignedTo === undefined
+      ? ''
+      : 'AND (assigned_to = $1 OR assigned_technician = $1)';
+    const categoryAssignmentScope = assignedTo === undefined
+      ? ''
+      : 'AND (i.assigned_to = $1 OR i.assigned_technician = $1)';
+    const params = assignedTo === undefined ? [] : [assignedTo];
     // Total incidents
     const totalResult = await query<{ count: string }>(
-      `SELECT COUNT(*) as count FROM incidents WHERE deleted_at IS NULL;`
+      `SELECT COUNT(*) as count FROM incidents WHERE deleted_at IS NULL ${assignmentScope};`,
+      params
     );
     const total = parseInt(totalResult[0]?.count || '0', 10);
 
     // By status
     const byStatusResult = await query<{ status: string; count: string }>(
-      `SELECT status, COUNT(*) as count FROM incidents WHERE deleted_at IS NULL GROUP BY status;`
+      `SELECT status, COUNT(*) as count FROM incidents WHERE deleted_at IS NULL ${assignmentScope} GROUP BY status;`,
+      params
     );
     const byStatus: Record<string, number> = {};
     byStatusResult.forEach((row) => {
@@ -226,7 +248,8 @@ export class IncidentService {
 
     // By priority
     const byPriorityResult = await query<{ priority: string; count: string }>(
-      `SELECT priority, COUNT(*) as count FROM incidents WHERE deleted_at IS NULL GROUP BY priority;`
+      `SELECT priority, COUNT(*) as count FROM incidents WHERE deleted_at IS NULL ${assignmentScope} GROUP BY priority;`,
+      params
     );
     const byPriority: Record<string, number> = {};
     byPriorityResult.forEach((row) => {
@@ -238,8 +261,9 @@ export class IncidentService {
       `SELECT c.name, COUNT(i.id) as count 
        FROM incidents i
        JOIN categories c ON i.category_id = c.id
-       WHERE i.deleted_at IS NULL
-       GROUP BY c.name;`
+      WHERE i.deleted_at IS NULL ${categoryAssignmentScope}
+      GROUP BY c.name;`,
+      params
     );
     const byCategory: Record<string, number> = {};
     byCategoryResult.forEach((row) => {
@@ -252,16 +276,20 @@ export class IncidentService {
   /**
    * Get heatmap data (for visualization)
    */
-  async getHeatmapData(): Promise<Array<{ lat: number; lng: number; count: number }>> {
+  async getHeatmapData(assignedTo?: number): Promise<Array<{ lat: number; lng: number; count: number }>> {
+    const assignmentScope = assignedTo === undefined
+      ? ''
+      : 'AND (assigned_to = $1 OR assigned_technician = $1)';
     return query<{ lat: number; lng: number; count: number }>(
       `SELECT 
          ROUND(ST_Y(location_point)::numeric, 2) as lat,
          ROUND(ST_X(location_point)::numeric, 2) as lng,
          COUNT(*) as count
        FROM incidents
-       WHERE deleted_at IS NULL AND location_point IS NOT NULL
+      WHERE deleted_at IS NULL AND location_point IS NOT NULL ${assignmentScope}
        GROUP BY ROUND(ST_Y(location_point)::numeric, 2), ROUND(ST_X(location_point)::numeric, 2)
-       ORDER BY count DESC;`
+      ORDER BY count DESC;`,
+      assignedTo === undefined ? [] : [assignedTo]
     );
   }
 }

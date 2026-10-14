@@ -116,6 +116,7 @@ CREATE TABLE incident_images (
     image_url TEXT NOT NULL,
     ai_analysis JSONB,
     uploaded_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+    uploaded_by_admin BIGINT REFERENCES admins(id) ON DELETE SET NULL,
     is_before BOOLEAN DEFAULT true,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -344,19 +345,18 @@ RETURNS TABLE (
 BEGIN
     RETURN QUERY
     SELECT
-        i.id,
+        i.id::BIGINT,
         i.title,
-        ROUND(ST_Distance(i.location_point, ST_SetSRID(ST_MakePoint(p_longitude, p_latitude), 4326))::NUMERIC * 1000, 2),
+        ROUND(ST_Distance(i.location_point::GEOGRAPHY, ST_SetSRID(ST_MakePoint(p_longitude, p_latitude), 4326)::GEOGRAPHY)::NUMERIC, 2),
         i.status,
         i.priority
     FROM incidents i
     WHERE i.deleted_at IS NULL
         AND i.location_point IS NOT NULL
         AND ST_DWithin(
-            i.location_point,
-            ST_SetSRID(ST_MakePoint(p_longitude, p_latitude), 4326),
-            p_distance_meters / 1000.0,
-            true
+            i.location_point::GEOGRAPHY,
+            ST_SetSRID(ST_MakePoint(p_longitude, p_latitude), 4326)::GEOGRAPHY,
+            p_distance_meters
         )
     ORDER BY distance_meters ASC;
 END;

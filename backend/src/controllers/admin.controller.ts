@@ -9,6 +9,8 @@ import { HTTP_STATUS, ERROR_MESSAGES, SUCCESS_MESSAGES, PAGINATION } from '../co
 import { adminService } from '../services/admin.service';
 import { validatePaginationParams } from '../utils/validators';
 import { notificationService } from '../services/notification.service';
+import { incidentImageUpload } from '../middlewares/incidentUpload';
+import { unlink } from 'node:fs/promises';
 
 export class AdminController {
   /**
@@ -35,7 +37,7 @@ export class AdminController {
    * Get all incidents with admin view
    * GET /admin/incidents?page=1&limit=10&status=open&priority=high
    */
-  async getAllIncidents(req: Request, res: Response): Promise<void> {
+  async getAllIncidents(req: AuthRequest, res: Response): Promise<void> {
     try {
       const { page = PAGINATION.DEFAULT_PAGE, limit = PAGINATION.DEFAULT_LIMIT, status, priority, category_id, search, from_date, to_date } = req.query;
 
@@ -52,7 +54,8 @@ export class AdminController {
 
       const { incidents, total } = await adminService.getAllIncidentsWithDetails(
         filters,
-        { page: validPage, limit: validLimit }
+        { page: validPage, limit: validLimit },
+        req.user
       );
 
       res.json({
@@ -73,6 +76,47 @@ export class AdminController {
     }
   }
 
+  async getIncident(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const incident = await adminService.getIncidentWithDetails(Number(req.params.incidentId), req.user!);
+      if (!incident) {
+        res.status(HTTP_STATUS.NOT_FOUND).json({ error: ERROR_MESSAGES.NOT_FOUND });
+        return;
+      }
+      res.json({ success: true, data: incident });
+    } catch (error) {
+      console.error('Get admin incident error:', error);
+      res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({ error: ERROR_MESSAGES.INTERNAL_ERROR });
+    }
+  }
+
+  async uploadAfterImage(req: AuthRequest, res: Response): Promise<void> {
+    const file = req.file;
+    if (!file) {
+      res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Vui lòng chọn ảnh hiện trường.' });
+      return;
+    }
+
+    try {
+      const saved = await adminService.addAdminIncidentImage(
+        Number(req.params.incidentId),
+        req.user!.id,
+        req.user!.role,
+        `/uploads/incidents/${file.filename}`
+      );
+      if (!saved) {
+        await unlink(file.path).catch(() => undefined);
+        res.status(HTTP_STATUS.NOT_FOUND).json({ error: ERROR_MESSAGES.NOT_FOUND });
+        return;
+      }
+      res.status(HTTP_STATUS.CREATED).json({ success: true, data: saved });
+    } catch (error) {
+      await unlink(file.path).catch(() => undefined);
+      console.error('Upload admin incident evidence error:', error);
+      res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({ error: ERROR_MESSAGES.INTERNAL_ERROR });
+    }
+  }
+
   /**
    * Assign incident to technician
    * POST /admin/incidents/:incidentId/assign
@@ -81,26 +125,27 @@ export class AdminController {
     try {
       const { incidentId } = req.params;
       const { assigned_technician, assigned_to, priority } = req.body;
+      const hasAssignee = Object.hasOwn(req.body, 'assigned_to') || Object.hasOwn(req.body, 'assigned_technician');
 
-      if (!assigned_technician && !assigned_to && !priority) {
+      if (!hasAssignee && !priority) {
         res.status(HTTP_STATUS.BAD_REQUEST).json({
           error: 'At least one of assigned_technician, assigned_to, or priority is required'
         });
         return;
       }
 
-      const assignee = assigned_to ?? assigned_technician;
-      if (assignee !== undefined && (!Number.isInteger(Number(assignee)) || Number(assignee) <= 0)) {
+      const assignee = Object.hasOwn(req.body, 'assigned_to') ? assigned_to : assigned_technician;
+      if (hasAssignee && assignee !== null && (!Number.isInteger(Number(assignee)) || Number(assignee) <= 0)) {
         res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'assigned_to must be a positive integer' });
         return;
       }
-      const assignment: { assigned_technician?: number; assigned_to?: number; priority?: string } = {};
-      if (assignee !== undefined) {
-        assignment.assigned_technician = Number(assignee);
-        assignment.assigned_to = Number(assignee);
+      const assignment: { assigned_technician?: number | null; assigned_to?: number | null; priority?: string } = {};
+      if (hasAssignee) {
+        assignment.assigned_technician = assignee === null ? null : Number(assignee);
+        assignment.assigned_to = assignee === null ? null : Number(assignee);
       }
       if (priority) assignment.priority = priority;
-      const updated = await adminService.assignIncident(parseInt(incidentId as string, 10), assignment, req.user!.id);
+      const updated = await adminService.assignIncident(parseInt(incidentId as string, 10), assignment, req.user!.id, req.user!.role);
 
       if (!updated) {
         res.status(HTTP_STATUS.NOT_FOUND).json({ error: ERROR_MESSAGES.NOT_FOUND });
@@ -131,7 +176,7 @@ export class AdminController {
   async updateIncidentStatus(req: AuthRequest, res: Response): Promise<void> {
     try {
       const { incidentId } = req.params;
-      const { status } = req.body;
+      const { status, rejection_reason } = req.body;
 
       if (!status || !['pending', 'assigned', 'in_progress', 'completed', 'rejected'].includes(status)) {
         res.status(HTTP_STATUS.BAD_REQUEST).json({
@@ -140,7 +185,12 @@ export class AdminController {
         return;
       }
 
-      const updated = await adminService.updateIncidentStatus(parseInt(incidentId as string, 10), status, req.user!.id);
+      if (status === 'rejected' && (typeof rejection_reason !== 'string' || !rejection_reason.trim())) {
+        res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Vui lòng nhập lý do từ chối.' });
+        return;
+      }
+
+      const updated = await adminService.updateIncidentStatus(parseInt(incidentId as string, 10), status, req.user!.id, req.user!.role, rejection_reason);
 
       if (!updated) {
         res.status(HTTP_STATUS.NOT_FOUND).json({ error: ERROR_MESSAGES.NOT_FOUND });
@@ -154,15 +204,28 @@ export class AdminController {
       });
     } catch (error) {
       console.error('Update incident status error:', error);
+      if (error instanceof Error && error.message === 'TECHNICIAN_STATUS_FORBIDDEN') {
+        res.status(HTTP_STATUS.FORBIDDEN).json({ error: ERROR_MESSAGES.FORBIDDEN });
+        return;
+      }
+      if (error instanceof Error && error.message === 'COMPLETION_EVIDENCE_REQUIRED') {
+        res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Vui lòng tải ảnh kết quả sau xử lý trước khi hoàn tất.' });
+        return;
+      }
+      if (error instanceof Error && error.message === 'REJECTION_REASON_REQUIRED') {
+        res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Vui lòng nhập lý do từ chối.' });
+        return;
+      }
       res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
         error: ERROR_MESSAGES.INTERNAL_ERROR,
       });
     }
   }
 
-  async getStaff(_req: AuthRequest, res: Response): Promise<void> {
+  async getStaff(req: AuthRequest, res: Response): Promise<void> {
     try {
-      res.json({ success: true, data: await adminService.getStaff() });
+      const managerId = req.user?.role === 'manager' ? req.user.id : undefined;
+      res.json({ success: true, data: await adminService.getStaff(managerId) });
     } catch (error) {
       console.error('Get staff error:', error);
       res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({ error: ERROR_MESSAGES.INTERNAL_ERROR });
@@ -171,7 +234,8 @@ export class AdminController {
 
   async getIncidentHistory(req: AuthRequest, res: Response): Promise<void> {
     try {
-      const history = await adminService.getIncidentHistory(Number(req.params.incidentId));
+      const technicianId = req.user?.role === 'technician' ? req.user.id : undefined;
+      const history = await adminService.getIncidentHistory(Number(req.params.incidentId), technicianId);
       res.json({ success: true, data: history });
     } catch (error) {
       console.error('Get incident history error:', error);
@@ -181,7 +245,8 @@ export class AdminController {
 
   async getIncidentNotes(req: AuthRequest, res: Response): Promise<void> {
     try {
-      res.json({ success: true, data: await adminService.getIncidentNotes(Number(req.params.incidentId)) });
+      const technicianId = req.user?.role === 'technician' ? req.user.id : undefined;
+      res.json({ success: true, data: await adminService.getIncidentNotes(Number(req.params.incidentId), technicianId) });
     } catch (error) {
       console.error('Get incident notes error:', error);
       res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({ error: ERROR_MESSAGES.INTERNAL_ERROR });
@@ -195,7 +260,7 @@ export class AdminController {
         res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'note is required' });
         return;
       }
-      const created = await adminService.addIncidentNote(Number(req.params.incidentId), note.trim(), req.user!.id);
+      const created = await adminService.addIncidentNote(Number(req.params.incidentId), note.trim(), req.user!.id, req.user!.role);
       if (!created) {
         res.status(HTTP_STATUS.NOT_FOUND).json({ error: ERROR_MESSAGES.NOT_FOUND });
         return;

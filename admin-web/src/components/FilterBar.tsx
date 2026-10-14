@@ -1,8 +1,10 @@
 import { Filter, Search } from 'lucide-react';
 
+export type IncidentStatusLabel = 'Mới' | 'Đã tiếp nhận' | 'Đang xử lý' | 'Hoàn tất' | 'Từ chối';
+
 export interface IncidentFilters {
     search: string;
-    status: string;
+    status: 'Tất cả' | IncidentStatusLabel;
     category: string;
     priority: string;
     fromDate: string;
@@ -31,7 +33,7 @@ export default function FilterBar({ filters, categories, onChange, onFilter }: F
                         <input value={filters.search} onChange={(event) => updateFilter('search', event.target.value)} placeholder="Mã, tiêu đề..." className="h-10 w-full rounded-lg border border-slate-200 bg-background pl-9 pr-3 text-sm text-neutral-900 outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" />
                     </span>
                 </label>
-                <label className="block"><span className="mb-1.5 block text-xs font-semibold text-neutral-500">Trạng thái</span><select value={filters.status} onChange={(event) => updateFilter('status', event.target.value)} className="h-10 w-full rounded-lg border border-slate-200 bg-background px-3 text-sm text-neutral-900 outline-none focus:border-primary"><option>Tất cả</option><option>Mới</option><option>Đang xử lý</option><option>Hoàn tất</option><option>Khẩn cấp</option></select></label>
+                <label className="block"><span className="mb-1.5 block text-xs font-semibold text-neutral-500">Trạng thái</span><select value={filters.status} onChange={(event) => updateFilter('status', event.target.value as IncidentFilters['status'])} className="h-10 w-full rounded-lg border border-slate-200 bg-background px-3 text-sm text-neutral-900 outline-none focus:border-primary"><option>Tất cả</option><option>Mới</option><option>Đã tiếp nhận</option><option>Đang xử lý</option><option>Hoàn tất</option><option>Từ chối</option></select></label>
                 <label className="block"><span className="mb-1.5 block text-xs font-semibold text-neutral-500">Danh mục</span><select value={filters.category} onChange={(event) => updateFilter('category', event.target.value)} className="h-10 w-full rounded-lg border border-slate-200 bg-background px-3 text-sm text-neutral-900 outline-none focus:border-primary"><option>Tất cả</option>{categories.map((category) => <option key={category}>{category}</option>)}</select></label>
                 <label className="block"><span className="mb-1.5 block text-xs font-semibold text-neutral-500">Mức độ</span><select value={filters.priority} onChange={(event) => updateFilter('priority', event.target.value)} className="h-10 w-full rounded-lg border border-slate-200 bg-background px-3 text-sm text-neutral-900 outline-none focus:border-primary"><option>Tất cả</option><option>Nhẹ</option><option>Trung bình</option><option>Nghiêm trọng</option><option>Khẩn cấp</option></select></label>
                 <label className="block"><span className="mb-1.5 block text-xs font-semibold text-neutral-500">Từ ngày</span><input type="date" value={filters.fromDate} onChange={(event) => updateFilter('fromDate', event.target.value)} className="h-10 w-full rounded-lg border border-slate-200 bg-background px-3 text-sm text-neutral-900 outline-none focus:border-primary" /></label>

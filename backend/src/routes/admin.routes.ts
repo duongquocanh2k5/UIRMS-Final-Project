@@ -16,38 +16,44 @@
 import { Router } from 'express';
 import { adminController } from '../controllers/admin.controller';
 import { authenticateToken, authorizeRole } from '../middlewares/auth.middleware';
+import { incidentImageUpload } from '../middlewares/incidentUpload';
 import { AdminRole } from '../config/constants';
 
 const router = Router();
 
-// All admin routes require authentication and admin role
+// Incident access includes technicians, with assignment checks in the service layer.
 router.use(authenticateToken);
-router.use(authorizeRole(AdminRole.SUPER_ADMIN, AdminRole.MANAGER));
 
-// Dashboard
-router.get('/dashboard/stats', (req, res) => adminController.getDashboardStats(req, res));
+const incidentRoles = [AdminRole.SUPER_ADMIN, AdminRole.MANAGER, AdminRole.TECHNICIAN];
+const managementRoles = [AdminRole.SUPER_ADMIN, AdminRole.MANAGER];
 
-// Incidents management
-router.get('/incidents', (req, res) => adminController.getAllIncidents(req, res));
-router.post('/incidents/:incidentId/assign', (req, res) => adminController.assignIncident(req, res));
-router.patch('/incidents/:incidentId/status', (req, res) => adminController.updateIncidentStatus(req, res));
+router.get('/incidents/heatmap', authorizeRole(AdminRole.SUPER_ADMIN), (req, res) => adminController.getIncidentsHeatmap(req, res));
+router.get('/incidents', authorizeRole(...incidentRoles), (req, res) => adminController.getAllIncidents(req, res));
+router.get('/incidents/:incidentId', authorizeRole(...incidentRoles), (req, res) => adminController.getIncident(req, res));
+router.post('/incidents/:incidentId/images/after', authorizeRole(...incidentRoles), incidentImageUpload.single('image'), (req, res) => adminController.uploadAfterImage(req, res));
+router.get('/incidents/:incidentId/history', authorizeRole(...incidentRoles), (req, res) => adminController.getIncidentHistory(req, res));
+router.get('/incidents/:incidentId/notes', authorizeRole(...incidentRoles), (req, res) => adminController.getIncidentNotes(req, res));
+router.post('/incidents/:incidentId/notes', authorizeRole(...incidentRoles), (req, res) => adminController.addIncidentNote(req, res));
+router.patch('/incidents/:incidentId/status', authorizeRole(...incidentRoles), (req, res) => adminController.updateIncidentStatus(req, res));
+router.post('/incidents/:incidentId/assign', authorizeRole(...managementRoles), (req, res) => adminController.assignIncident(req, res));
+
+router.use(authorizeRole(...managementRoles));
+
+// Global system views and configuration are reserved for super-admins.
+router.get('/dashboard/stats', authorizeRole(AdminRole.SUPER_ADMIN), (req, res) => adminController.getDashboardStats(req, res));
 router.get('/staff', (req, res) => adminController.getStaff(req, res));
-router.get('/incidents/:incidentId/history', (req, res) => adminController.getIncidentHistory(req, res));
-router.get('/incidents/:incidentId/notes', (req, res) => adminController.getIncidentNotes(req, res));
-router.post('/incidents/:incidentId/notes', (req, res) => adminController.addIncidentNote(req, res));
 router.post('/notifications', (req, res) => adminController.sendNotification(req, res));
 
 // Analytics
-router.get('/analytics/incidents', (req, res) => adminController.getIncidentAnalytics(req, res));
+router.get('/analytics/incidents', authorizeRole(AdminRole.SUPER_ADMIN), (req, res) => adminController.getIncidentAnalytics(req, res));
 
 // Heatmap
-router.get('/incidents/heatmap', (req, res) => adminController.getIncidentsHeatmap(req, res));
 
 // Technicians
-router.get('/technicians/workload', (req, res) => adminController.getTechnicianWorkload(req, res));
-router.get('/technicians/active', (req, res) => adminController.getActiveTechnicians(req, res));
+router.get('/technicians/workload', authorizeRole(AdminRole.SUPER_ADMIN), (req, res) => adminController.getTechnicianWorkload(req, res));
+router.get('/technicians/active', authorizeRole(AdminRole.SUPER_ADMIN), (req, res) => adminController.getActiveTechnicians(req, res));
 
 // Performance metrics
-router.get('/metrics/performance', (req, res) => adminController.getPerformanceMetrics(req, res));
+router.get('/metrics/performance', authorizeRole(AdminRole.SUPER_ADMIN), (req, res) => adminController.getPerformanceMetrics(req, res));
 
 export default router;

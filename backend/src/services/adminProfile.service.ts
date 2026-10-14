@@ -3,6 +3,16 @@ import { comparePassword, hashPassword } from '../utils/password';
 import { AdminProfileResponse, UpdateAdminProfileInput } from '../types/index';
 
 export class AdminProfileService {
+    async recordPresence(adminId: number): Promise<boolean> {
+        const result = await query(
+            `UPDATE admins SET last_seen_at = NOW()
+             WHERE id = $1 AND is_active = true AND deleted_at IS NULL
+             RETURNING id;`,
+            [adminId]
+        );
+        return result.length > 0;
+    }
+
     async getProfile(adminId: number): Promise<AdminProfileResponse | null> {
         return queryOne<AdminProfileResponse>(
             `SELECT id, username, email, full_name AS name, phone, avatar_url,

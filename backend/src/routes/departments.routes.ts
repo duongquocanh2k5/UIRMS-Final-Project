@@ -7,7 +7,7 @@ import { departmentsController } from '../controllers/departments.controller';
 const router = Router();
 
 router.use(authenticateToken);
-router.use(authorizeRole(AdminRole.SUPER_ADMIN, AdminRole.MANAGER));
+router.use(authorizeRole(AdminRole.SUPER_ADMIN));
 
 router.get('/', (req, res) => departmentsController.getAll(req, res));
 router.post(

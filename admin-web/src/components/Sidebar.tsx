@@ -1,18 +1,21 @@
 import { BarChart3, FileText, LayoutDashboard, MapPin, Settings, Users } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import type { AdminRole } from '../services/api';
 
 const menuItems = [
-    { label: 'Tổng Quan', to: '/', icon: LayoutDashboard, end: true },
-    { label: 'Danh Sách Báo Cáo', to: '/incidents', icon: FileText },
-    { label: 'Bản Đồ', to: '/map', icon: MapPin },
-    { label: 'Thống Kê', to: '/stats', icon: BarChart3 },
-    { label: 'Nhân Viên', to: '/staff', icon: Users },
-    { label: 'Cài Đặt', to: '/settings', icon: Settings },
+    { label: 'Tổng Quan', to: '/', icon: LayoutDashboard, end: true, roles: ['super_admin'] },
+    { label: 'Danh Sách Báo Cáo', to: '/incidents', icon: FileText, roles: ['super_admin', 'manager'] },
+    { label: 'Sự Cố Được Giao', to: '/incidents', icon: FileText, roles: ['technician'] },
+    { label: 'Bản Đồ', to: '/map', icon: MapPin, roles: ['super_admin'] },
+    { label: 'Thống Kê', to: '/stats', icon: BarChart3, roles: ['super_admin'] },
+    { label: 'Nhân Viên', to: '/staff', icon: Users, roles: ['super_admin', 'manager'] },
+    { label: 'Cài Đặt', to: '/settings', icon: Settings, roles: ['super_admin', 'manager', 'technician'] },
 ];
 
 export default function Sidebar() {
     const { user } = useAuth();
+    const visibleItems = menuItems.filter(({ roles }) => roles.includes(user.role as AdminRole));
     const initials = user.name.split(' ').map((part) => part[0]).join('').slice(-2).toUpperCase();
 
     return (
@@ -23,7 +26,7 @@ export default function Sidebar() {
             </div>
 
             <nav className="mt-7 flex-1 space-y-1" aria-label="Điều hướng chính">
-                {menuItems.map(({ label, to, icon: Icon, end }) => (
+                {visibleItems.map(({ label, to, icon: Icon, end }) => (
                     <NavLink
                         key={to}
                         to={to}

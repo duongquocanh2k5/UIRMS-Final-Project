@@ -3,7 +3,7 @@
  * Handles user registration, login, and OTP verification
  */
 
-import { User, Admin, CreateAdminInput, CreateUserInput } from '../types/index';
+import { User, Admin, CreateUserInput } from '../types/index';
 import { hashPassword, comparePassword } from '../utils/password';
 import { generateToken, TokenPayload } from '../utils/jwt';
 import { query, queryOne } from '../config/database';
@@ -11,26 +11,6 @@ import { env } from '../config/environment';
 import { emailService } from './email.service';
 
 export class AuthService {
-  async registerAdmin(input: Omit<CreateAdminInput, 'role'> & { role?: Admin['role'] }): Promise<Admin> {
-    const { username, email, password, full_name, role = 'manager' } = input;
-    const password_hash = await hashPassword(password);
-
-    try {
-      const result = await query<Admin>(
-        `INSERT INTO admins (username, email, password_hash, full_name, role)
-         VALUES ($1, $2, $3, $4, $5)
-         RETURNING id, username, email, full_name, role, is_active, last_login, created_at, updated_at;`,
-        [username, email, password_hash, full_name, role]
-      );
-
-      if (!result[0]) throw new Error('Failed to create admin');
-      return result[0];
-    } catch (error: any) {
-      if (error.code === '23505') throw new Error('Admin username or email already exists');
-      throw error;
-    }
-  }
-
   /**
    * Register new user
    */

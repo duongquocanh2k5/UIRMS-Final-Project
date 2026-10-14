@@ -57,11 +57,12 @@ export class IncidentController {
    * Get incident by ID
    * GET /incidents/:incidentId
    */
-  async getIncident(req: Request, res: Response): Promise<void> {
+  async getIncident(req: AuthRequest, res: Response): Promise<void> {
     try {
       const { incidentId } = req.params;
 
-      const incident = await incidentService.getIncidentById(parseInt(incidentId as string, 10));
+      const assignedTo = req.user?.role === 'technician' ? req.user.id : undefined;
+      const incident = await incidentService.getIncidentById(parseInt(incidentId as string, 10), assignedTo);
 
       if (!incident) {
         res.status(HTTP_STATUS.NOT_FOUND).json({ error: ERROR_MESSAGES.NOT_FOUND });
@@ -108,13 +109,14 @@ export class IncidentController {
    * Get all incidents with filters
    * GET /incidents?page=1&limit=10&status=open&category_id=1
    */
-  async getIncidents(req: Request, res: Response): Promise<void> {
+  async getIncidents(req: AuthRequest, res: Response): Promise<void> {
     try {
       const { page = PAGINATION.DEFAULT_PAGE, limit = PAGINATION.DEFAULT_LIMIT, status, category_id } = req.query;
 
       const { page: validPage, limit: validLimit } = validatePaginationParams(page, limit);
 
       const filters: any = { status: status as any };
+      if (req.user?.role === 'technician') filters.assigned_to = req.user.id;
       if (category_id) {
         filters.category_id = parseInt(category_id as string, 10);
       }
@@ -146,15 +148,18 @@ export class IncidentController {
    * Get user's incidents
    * GET /incidents/user/:userId
    */
-  async getUserIncidents(req: Request, res: Response): Promise<void> {
+  async getUserIncidents(req: AuthRequest, res: Response): Promise<void> {
     try {
       const { userId } = req.params;
       const { page = PAGINATION.DEFAULT_PAGE, limit = PAGINATION.DEFAULT_LIMIT } = req.query;
 
       const { page: validPage, limit: validLimit } = validatePaginationParams(page, limit);
 
+      const filters = req.user?.role === 'technician'
+        ? { assigned_to: req.user.id }
+        : { user_id: parseInt(userId as string, 10) };
       const { incidents, total } = await incidentService.getIncidents(
-        { user_id: parseInt(userId as string, 10) },
+        filters,
         { page: validPage, limit: validLimit }
       );
 
@@ -214,7 +219,7 @@ export class IncidentController {
    * Get incidents near location
    * GET /incidents/search/nearby?latitude=10.7&longitude=106.7&radius=5000
    */
-  async getNearbyIncidents(req: Request, res: Response): Promise<void> {
+  async getNearbyIncidents(req: AuthRequest, res: Response): Promise<void> {
     try {
       const { latitude, longitude, radius = 5000 } = req.query;
 
@@ -228,7 +233,8 @@ export class IncidentController {
       const incidents = await incidentService.getIncidentsNearLocation(
         parseFloat(latitude as string),
         parseFloat(longitude as string),
-        parseInt(radius as string, 10)
+        parseInt(radius as string, 10),
+        req.user?.role === 'technician' ? req.user.id : undefined
       );
 
       res.json({
@@ -306,9 +312,9 @@ export class IncidentController {
    * Get incident statistics
    * GET /incidents/stats/summary
    */
-  async getIncidentStats(req: Request, res: Response): Promise<void> {
+  async getIncidentStats(req: AuthRequest, res: Response): Promise<void> {
     try {
-      const stats = await incidentService.getIncidentStats();
+      const stats = await incidentService.getIncidentStats(req.user?.role === 'technician' ? req.user.id : undefined);
 
       res.json({
         success: true,
@@ -326,9 +332,9 @@ export class IncidentController {
    * Get heatmap data
    * GET /incidents/heatmap/data
    */
-  async getHeatmapData(req: Request, res: Response): Promise<void> {
+  async getHeatmapData(req: AuthRequest, res: Response): Promise<void> {
     try {
-      const heatmapData = await incidentService.getHeatmapData();
+      const heatmapData = await incidentService.getHeatmapData(req.user?.role === 'technician' ? req.user.id : undefined);
 
       res.json({
         success: true,

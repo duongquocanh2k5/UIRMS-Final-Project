@@ -49,6 +49,30 @@ export function authenticateToken(
   }
 }
 
+export function authenticateOptionalToken(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): void {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+  if (!token) {
+    next();
+    return;
+  }
+
+  try {
+    req.user = jwt.verify(token, env.jwtSecret) as {
+      id: number;
+      role: string;
+      email: string;
+    };
+    next();
+  } catch {
+    res.status(HTTP_STATUS.UNAUTHORIZED).json({ error: ERROR_MESSAGES.UNAUTHORIZED });
+  }
+}
+
 /**
  * Middleware to check if user has specific role
  */

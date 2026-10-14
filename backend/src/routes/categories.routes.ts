@@ -7,11 +7,10 @@ import { categoriesController } from '../controllers/categories.controller';
 const router = Router();
 
 router.use(authenticateToken);
-router.use(authorizeRole(AdminRole.SUPER_ADMIN, AdminRole.MANAGER));
-
-router.get('/', (req, res) => categoriesController.getAll(req, res));
+router.get('/', authorizeRole(AdminRole.SUPER_ADMIN, AdminRole.MANAGER, AdminRole.TECHNICIAN), (req, res) => categoriesController.getAll(req, res));
 router.post(
     '/',
+    authorizeRole(AdminRole.SUPER_ADMIN),
     validateRequest({
         name: { required: true, type: 'string', minLength: 1, maxLength: 100 },
         icon: { required: false, type: 'string', maxLength: 10 },
@@ -21,6 +20,7 @@ router.post(
 );
 router.patch(
     '/:id',
+    authorizeRole(AdminRole.SUPER_ADMIN),
     validateRequest({
         name: { required: false, type: 'string', minLength: 1, maxLength: 100 },
         icon: { required: false, type: 'string', maxLength: 10 },
@@ -28,6 +28,6 @@ router.patch(
     }),
     (req, res) => categoriesController.update(req, res)
 );
-router.delete('/:id', (req, res) => categoriesController.delete(req, res));
+router.delete('/:id', authorizeRole(AdminRole.SUPER_ADMIN), (req, res) => categoriesController.delete(req, res));
 
 export default router;

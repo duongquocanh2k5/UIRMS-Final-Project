@@ -3,8 +3,9 @@ import { useState } from 'react';
 import AddStaffModal from '../components/AddStaffModal';
 import StaffDetailPanel from '../components/StaffDetailPanel';
 import StaffTable from '../components/StaffTable';
+import { useAuth } from '../context/AuthContext';
 import { useStaffDetail, useStaffList } from '../hooks/useStaffData';
-import { adminApi, type CreateStaffPayload } from '../services/api';
+import { adminApi, type CreateStaffPayload, type UpdateStaffPayload } from '../services/api';
 
 const PAGE_SIZE = 10;
 
@@ -19,6 +20,9 @@ function KpiCard({ title, value, description, icon: Icon, tone }: {
 }
 
 export default function Staff() {
+    const { user } = useAuth();
+    const canCreateStaff = user.role === 'super_admin' || user.role === 'manager';
+    const canCreateManagers = user.role === 'super_admin';
     const [page, setPage] = useState(1);
     const [selectedStaffId, setSelectedStaffId] = useState<number | null>(null);
     const [addModalOpen, setAddModalOpen] = useState(false);
@@ -32,11 +36,18 @@ export default function Staff() {
         setSelectedStaffId(response.data.id);
     }
 
+    async function updateStaff(payload: UpdateStaffPayload) {
+        if (selectedStaffId === null) return;
+        await adminApi.updateStaff(selectedStaffId, payload);
+        refresh();
+        detail.refresh();
+    }
+
     return (
         <div className="space-y-6">
             <div className="flex flex-wrap items-end justify-between gap-4">
                 <div><p className="text-sm font-medium text-neutral-500">Quản lý nhân sự tiếp nhận và xử lý sự cố</p><h1 className="mt-1 text-2xl font-bold text-neutral-900">Quản Lý Nhân Viên</h1></div>
-                <button type="button" onClick={() => setAddModalOpen(true)} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-primary/90"><UserRoundPlus size={17} />Thêm Nhân Viên</button>
+                {canCreateStaff && <button type="button" onClick={() => setAddModalOpen(true)} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-primary/90"><UserRoundPlus size={17} />Thêm Nhân Viên</button>}
             </div>
 
             {summaryError && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-danger">Không thể tải KPI nhân viên: {summaryError}</div>}
@@ -62,8 +73,8 @@ export default function Staff() {
                 onRetry={refresh}
             />
 
-            {selectedStaffId !== null && <StaffDetailPanel staff={detail.staff} loading={detail.loading} error={detail.error} onRetry={detail.refresh} />}
-            {addModalOpen && <AddStaffModal onClose={() => setAddModalOpen(false)} onCreate={createStaff} />}
+            {selectedStaffId !== null && <StaffDetailPanel staff={detail.staff} loading={detail.loading} error={detail.error} canManage={canCreateStaff} canChangeDepartment={user.role === 'super_admin'} onRetry={detail.refresh} onSave={updateStaff} />}
+            {canCreateStaff && addModalOpen && <AddStaffModal canCreateManagers={canCreateManagers} onClose={() => setAddModalOpen(false)} onCreate={createStaff} />}
         </div>
     );
 }
