@@ -7,8 +7,8 @@ const menuItems = [
     { label: 'Tổng Quan', to: '/', icon: LayoutDashboard, end: true, roles: ['super_admin'] },
     { label: 'Danh Sách Báo Cáo', to: '/incidents', icon: FileText, roles: ['super_admin', 'manager'] },
     { label: 'Sự Cố Được Giao', to: '/incidents', icon: FileText, roles: ['technician'] },
-    { label: 'Bản Đồ', to: '/map', icon: MapPin, roles: ['super_admin'] },
-    { label: 'Thống Kê', to: '/stats', icon: BarChart3, roles: ['super_admin'] },
+    { label: 'Bản Đồ', to: '/map', icon: MapPin, roles: ['super_admin', 'manager'] },
+    { label: 'Thống Kê', to: '/stats', icon: BarChart3, roles: ['super_admin', 'manager'] },
     { label: 'Nhân Viên', to: '/staff', icon: Users, roles: ['super_admin', 'manager'] },
     { label: 'Cài Đặt', to: '/settings', icon: Settings, roles: ['super_admin', 'manager', 'technician'] },
 ];

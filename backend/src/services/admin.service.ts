@@ -13,6 +13,18 @@ interface AdminIncidentUpdate {
   priority?: string;
 }
 
+/**
+ * Maps period string to interval days (whitelist to prevent SQL injection)
+ */
+function getIntervalDays(period: string): number {
+  switch (period) {
+    case 'day': return 1;
+    case 'week': return 7;
+    case 'month': return 30;
+    default: return 7;
+  }
+}
+
 export class AdminService {
   /**
    * Get dashboard statistics
@@ -417,6 +429,7 @@ export class AdminService {
 
   /**
    * Get incident analytics for dashboard
+   * FIX: Uses parameterized interval instead of string interpolation to prevent SQL injection
    */
   async getIncidentAnalytics(period: string): Promise<{
     period: string;
@@ -425,34 +438,33 @@ export class AdminService {
     completionRate: string;
   }> {
     let dateFormat = 'YYYY-MM-DD';
-    let intervalDays = '7';
+    const intervalDays = getIntervalDays(period);
 
-    if (period === 'month') {
-      intervalDays = '30';
-    } else if (period === 'day') {
-      intervalDays = '1';
+    if (period === 'day') {
       dateFormat = 'YYYY-MM-DD HH:00';
     }
 
+    // FIX: Use parameterized query with make_interval() instead of string interpolation
     const incidents = await query<{ date: string; count: string; completed: string }>(
       `SELECT 
         TO_CHAR(created_at, $1) as date,
         COUNT(*) as count,
         SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed
        FROM incidents
-       WHERE created_at > NOW() - INTERVAL '${intervalDays} days'
+       WHERE created_at > NOW() - make_interval(days => $2)
        AND deleted_at IS NULL
        GROUP BY TO_CHAR(created_at, $1)
        ORDER BY date;`,
-      [dateFormat]
+      [dateFormat, intervalDays]
     );
 
     const avgTimeResult = await query<{ avg_time: string }>(
       `SELECT AVG(EXTRACT(EPOCH FROM (completed_at - created_at))/3600) as avg_time
        FROM incidents 
-       WHERE created_at > NOW() - INTERVAL '${intervalDays} days'
+       WHERE created_at > NOW() - make_interval(days => $1)
        AND status = 'completed' AND completed_at IS NOT NULL
-       AND deleted_at IS NULL;`
+       AND deleted_at IS NULL;`,
+      [intervalDays]
     );
 
     const totalInPeriod = await query<{ total: string; completed: string }>(
@@ -460,8 +472,9 @@ export class AdminService {
         COUNT(*) as total,
         SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed
        FROM incidents
-       WHERE created_at > NOW() - INTERVAL '${intervalDays} days'
-       AND deleted_at IS NULL;`
+       WHERE created_at > NOW() - make_interval(days => $1)
+       AND deleted_at IS NULL;`,
+      [intervalDays]
     );
 
     const total = parseInt(totalInPeriod[0]?.total || '0', 10);

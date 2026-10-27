@@ -12,8 +12,11 @@ import { env } from '../config/environment';
 export function getCorsOptions(): CorsOptions {
   return {
     origin: (origin, callback) => {
+      // Allow localhost origins only in non-production environments
       const isLocalDevelopmentOrigin = Boolean(
-        origin && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)
+        env.nodeEnv !== 'production' &&
+        origin &&
+        /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)
       );
 
       if (!origin || env.corsOrigin.includes(origin) || isLocalDevelopmentOrigin) {

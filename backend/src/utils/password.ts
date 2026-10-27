@@ -4,6 +4,7 @@
  */
 
 import bcrypt from 'bcrypt';
+import crypto from 'crypto';
 
 const SALT_ROUNDS = 10;
 
@@ -35,13 +36,14 @@ export async function comparePassword(
 }
 
 /**
- * Generate random password
+ * Generate random password using cryptographically secure random bytes
  */
 export function generateRandomPassword(length: number = 12): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
+  const randomBytes = crypto.randomBytes(length);
   let password = '';
   for (let i = 0; i < length; i++) {
-    password += chars.charAt(Math.floor(Math.random() * chars.length));
+    password += chars.charAt(randomBytes[i]! % chars.length);
   }
   return password;
 }

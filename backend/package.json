@@ -7,7 +7,7 @@
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "node test-backend.js",
     "lint": "echo \"Linter not configured\" && exit 0"
   },
   "keywords": [

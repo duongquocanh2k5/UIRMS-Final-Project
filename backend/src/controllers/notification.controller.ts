@@ -54,12 +54,25 @@ export class NotificationController {
   /**
    * Mark notification as read
    * PATCH /notifications/:notificationId/read
+   * FIX: Pass userId to service to enforce ownership check (IDOR prevention)
    */
   async markAsRead(req: AuthRequest, res: Response): Promise<void> {
     try {
-      const { notificationId } = req.params;
+      const userId = req.user?.id;
+      const rawId = req.params.notificationId ?? req.params.id;
 
-      const notification = await notificationService.markAsRead(parseInt(notificationId as string, 10));
+      if (!userId) {
+        res.status(HTTP_STATUS.UNAUTHORIZED).json({ error: ERROR_MESSAGES.UNAUTHORIZED });
+        return;
+      }
+
+      if (!rawId) {
+        res.status(HTTP_STATUS.BAD_REQUEST).json({ error: ERROR_MESSAGES.INVALID_INPUT });
+        return;
+      }
+
+      const notificationId = parseInt(rawId as string, 10);
+      const notification = await notificationService.markAsRead(notificationId, userId);
 
       if (!notification) {
         res.status(HTTP_STATUS.NOT_FOUND).json({
@@ -143,12 +156,19 @@ export class NotificationController {
   /**
    * Delete notification
    * DELETE /notifications/:notificationId
+   * FIX: Pass userId to service to enforce ownership check (IDOR prevention)
    */
   async deleteNotification(req: AuthRequest, res: Response): Promise<void> {
     try {
+      const userId = req.user?.id;
       const { notificationId } = req.params;
 
-      const deleted = await notificationService.deleteNotification(parseInt(notificationId as string, 10));
+      if (!userId) {
+        res.status(HTTP_STATUS.UNAUTHORIZED).json({ error: ERROR_MESSAGES.UNAUTHORIZED });
+        return;
+      }
+
+      const deleted = await notificationService.deleteNotification(parseInt(notificationId as string, 10), userId);
 
       if (!deleted) {
         res.status(HTTP_STATUS.NOT_FOUND).json({

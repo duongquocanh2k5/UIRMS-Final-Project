@@ -6,7 +6,7 @@ import { statsController } from '../controllers/stats.controller';
 const router = Router();
 
 router.use(authenticateToken);
-router.use(authorizeRole(AdminRole.SUPER_ADMIN));
+router.use(authorizeRole(AdminRole.SUPER_ADMIN, AdminRole.MANAGER));
 
 router.get('/overview', (req, res) => statsController.getOverview(req, res));
 router.get('/by-district', (req, res) => statsController.getByDistrict(req, res));

@@ -4,6 +4,7 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
+import crypto from 'crypto';
 
 /**
  * Generate unique ID
@@ -14,9 +15,12 @@ export function generateId(): string {
 
 /**
  * Generate OTP (One Time Password)
+ * Uses cryptographically secure random number generator
  */
 export function generateOTP(length: number = 6): string {
-  return Math.random().toString().substring(2, 2 + length);
+  const min = Math.pow(10, length - 1);
+  const max = Math.pow(10, length) - 1;
+  return crypto.randomInt(min, max).toString();
 }
 
 /**

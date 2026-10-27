@@ -147,6 +147,7 @@ export class IncidentController {
   /**
    * Get user's incidents
    * GET /incidents/user/:userId
+   * FIX: Enforce ownership — regular users can only view their own incidents
    */
   async getUserIncidents(req: AuthRequest, res: Response): Promise<void> {
     try {
@@ -155,9 +156,18 @@ export class IncidentController {
 
       const { page: validPage, limit: validLimit } = validatePaginationParams(page, limit);
 
-      const filters = req.user?.role === 'technician'
-        ? { assigned_to: req.user.id }
-        : { user_id: parseInt(userId as string, 10) };
+      let filters: any;
+      if (req.user?.role === 'technician') {
+        // Technicians see only their assigned incidents
+        filters = { assigned_to: req.user.id };
+      } else if (req.user?.role === 'user') {
+        // FIX: Regular users can ONLY view their own incidents (prevent IDOR)
+        filters = { user_id: req.user.id };
+      } else {
+        // Admin roles can view any user's incidents
+        filters = { user_id: parseInt(userId as string, 10) };
+      }
+
       const { incidents, total } = await incidentService.getIncidents(
         filters,
         { page: validPage, limit: validLimit }
@@ -184,11 +194,28 @@ export class IncidentController {
   /**
    * Update incident
    * PUT /incidents/:incidentId
+   * FIX: Regular users can only update their own incidents
    */
   async updateIncident(req: AuthRequest, res: Response): Promise<void> {
     try {
       const { incidentId } = req.params;
+      const userId = req.user?.id;
+      const userRole = req.user?.role;
       const { status, priority, assigned_to, assigned_technician } = req.body;
+
+      if (!userId) {
+        res.status(HTTP_STATUS.UNAUTHORIZED).json({ error: ERROR_MESSAGES.UNAUTHORIZED });
+        return;
+      }
+
+      // Regular users can only update their own incidents
+      if (userRole === 'user') {
+        const incident = await incidentService.getIncidentById(parseInt(incidentId as string, 10));
+        if (!incident || incident.user_id !== userId) {
+          res.status(HTTP_STATUS.FORBIDDEN).json({ error: ERROR_MESSAGES.FORBIDDEN });
+          return;
+        }
+      }
 
       const updated = await incidentService.updateIncident(parseInt(incidentId as string, 10), {
         status,
@@ -253,10 +280,27 @@ export class IncidentController {
   /**
    * Mark incident as completed
    * PATCH /incidents/:incidentId/complete
+   * FIX: Regular users can only complete their own incidents
    */
   async completeIncident(req: AuthRequest, res: Response): Promise<void> {
     try {
       const { incidentId } = req.params;
+      const userId = req.user?.id;
+      const userRole = req.user?.role;
+
+      if (!userId) {
+        res.status(HTTP_STATUS.UNAUTHORIZED).json({ error: ERROR_MESSAGES.UNAUTHORIZED });
+        return;
+      }
+
+      // Regular users can only complete their own incidents
+      if (userRole === 'user') {
+        const incident = await incidentService.getIncidentById(parseInt(incidentId as string, 10));
+        if (!incident || incident.user_id !== userId) {
+          res.status(HTTP_STATUS.FORBIDDEN).json({ error: ERROR_MESSAGES.FORBIDDEN });
+          return;
+        }
+      }
 
       const updated = await incidentService.markCompleted(parseInt(incidentId as string, 10));
 

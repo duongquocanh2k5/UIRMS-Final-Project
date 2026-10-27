@@ -90,12 +90,18 @@ async function getExecutedMigrations(pool: Pool): Promise<string[]> {
 
 /**
  * Record migration execution
+ * FIX: Use parameterized query to prevent SQL injection via filenames
  */
 async function recordMigration(pool: Pool, name: string): Promise<void> {
-  await executeSql(
-    pool,
-    `INSERT INTO ${MIGRATIONS_TABLE} (name) VALUES ('${name}');`
-  );
+  const client = await pool.connect();
+  try {
+    await client.query(
+      `INSERT INTO ${MIGRATIONS_TABLE} (name) VALUES ($1);`,
+      [name]
+    );
+  } finally {
+    client.release();
+  }
 }
 
 /**

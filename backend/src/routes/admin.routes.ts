@@ -27,7 +27,7 @@ router.use(authenticateToken);
 const incidentRoles = [AdminRole.SUPER_ADMIN, AdminRole.MANAGER, AdminRole.TECHNICIAN];
 const managementRoles = [AdminRole.SUPER_ADMIN, AdminRole.MANAGER];
 
-router.get('/incidents/heatmap', authorizeRole(AdminRole.SUPER_ADMIN), (req, res) => adminController.getIncidentsHeatmap(req, res));
+router.get('/incidents/heatmap', authorizeRole(...managementRoles), (req, res) => adminController.getIncidentsHeatmap(req, res));
 router.get('/incidents', authorizeRole(...incidentRoles), (req, res) => adminController.getAllIncidents(req, res));
 router.get('/incidents/:incidentId', authorizeRole(...incidentRoles), (req, res) => adminController.getIncident(req, res));
 router.post('/incidents/:incidentId/images/after', authorizeRole(...incidentRoles), incidentImageUpload.single('image'), (req, res) => adminController.uploadAfterImage(req, res));

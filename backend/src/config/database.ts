@@ -8,15 +8,21 @@ import { env } from './environment';
 
 /**
  * Create and configure database connection pool
+ * FIX: SSL certificate verification is configurable via DB_SSL_REJECT_UNAUTHORIZED env var.
+ * In production, you should set DB_SSL_REJECT_UNAUTHORIZED=true and provide a CA certificate.
  */
 const useSsl = process.env.DB_SSL === 'true' || env.databaseUrl.includes('supabase.co');
+const rejectUnauthorized = process.env.DB_SSL_REJECT_UNAUTHORIZED === 'true';
 
 const pool = new Pool({
   connectionString: env.databaseUrl,
   max: 20,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 2000,
-  ssl: useSsl ? { rejectUnauthorized: false } : false,
+  ssl: useSsl ? {
+    rejectUnauthorized,
+    ...(process.env.DB_SSL_CA ? { ca: process.env.DB_SSL_CA } : {}),
+  } : false,
 });
 
 /**
@@ -81,7 +87,7 @@ export async function queryOne<T = any>(
 ): Promise<T | null> {
   try {
     const result = await pool.query(text, values);
-    return result.rows[0] as T | undefined || null;
+    return (result.rows[0] as T) ?? null;
   } catch (error) {
     console.error('Database query error:', error);
     throw error;

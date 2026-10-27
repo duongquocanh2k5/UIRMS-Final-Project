@@ -7,6 +7,7 @@ import express, { Express, Request, Response, NextFunction } from 'express';
 import path from 'path';
 import { corsMiddleware } from './middlewares/corsConfig';
 import { errorHandler, notFoundHandler } from './middlewares/errorHandler';
+import { authenticateToken } from './middlewares/auth.middleware';
 import routes from './routes';
 import { logger } from './utils/logger';
 
@@ -17,7 +18,10 @@ export function createApp(): Express {
   // Body parser
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ limit: '10mb', extended: true }));
-  app.use('/uploads', express.static(path.resolve(process.cwd(), 'uploads')));
+
+  // FIX: Static file serving for uploads requires authentication
+  // Unauthenticated users cannot access uploaded incident images
+  app.use('/uploads', authenticateToken, express.static(path.resolve(process.cwd(), 'uploads')));
 
   // CORS
   app.use(corsMiddleware());

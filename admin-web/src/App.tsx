@@ -19,6 +19,7 @@ function AppRoutes() {
     if (!isAuthenticated) return <AuthLayout><Routes><Route path="/login" element={<Login />} /><Route path="/forgot-password" element={<ForgotPassword />} /><Route path="*" element={<Navigate to="/login" state={{ from: location }} replace />} /></Routes></AuthLayout>;
 
     const isSuperAdmin = user.role === 'super_admin';
+    const canViewMapAndStats = isSuperAdmin || user.role === 'manager';
     const isTechnician = user.role === 'technician';
     const defaultRoute = isSuperAdmin ? '/' : '/incidents';
 
@@ -26,8 +27,8 @@ function AppRoutes() {
         <Route path="/" element={isSuperAdmin ? <Dashboard /> : <Navigate to="/incidents" replace />} />
         <Route path="/incidents" element={<Incidents />} />
         <Route path="/incidents/:id" element={<IncidentDetail />} />
-        <Route path="/map" element={isSuperAdmin ? <MapPage /> : <Navigate to="/incidents" replace />} />
-        <Route path="/stats" element={isSuperAdmin ? <Stats /> : <Navigate to="/incidents" replace />} />
+        <Route path="/map" element={canViewMapAndStats ? <MapPage /> : <Navigate to="/incidents" replace />} />
+        <Route path="/stats" element={canViewMapAndStats ? <Stats /> : <Navigate to="/incidents" replace />} />
         <Route path="/staff" element={isTechnician ? <Navigate to="/incidents" replace /> : <Staff />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="*" element={<Navigate to={defaultRoute} replace />} />

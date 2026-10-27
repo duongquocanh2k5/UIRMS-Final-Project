@@ -10,17 +10,66 @@ import { HTTP_STATUS, ERROR_MESSAGES, SUCCESS_MESSAGES } from '../config/constan
 import { isValidEmail, isValidPhoneNumber, isValidPassword, isValidIdentityNumber } from '../utils/validators';
 import { generateToken } from '../utils/jwt';
 
-const ADMIN_LOGIN_MAX_ATTEMPTS = 5;
-const ADMIN_LOGIN_WINDOW_MS = 10 * 60 * 1000;
-const ADMIN_LOGIN_LOCK_MS = 10 * 60 * 1000;
+const LOGIN_MAX_ATTEMPTS = 5;
+const LOGIN_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
+const LOGIN_LOCK_MS = 10 * 60 * 1000;   // 10 minutes lock
 
-interface AdminLoginAttempt {
+interface LoginAttempt {
   attempts: number;
   windowStartedAt: number;
   lockedUntil?: number;
 }
 
-const adminLoginAttempts = new Map<string, AdminLoginAttempt>();
+// Rate limiting maps for both user and admin login
+const userLoginAttempts = new Map<string, LoginAttempt>();
+const adminLoginAttempts = new Map<string, LoginAttempt>();
+
+/**
+ * Clean up expired entries and check/update rate limit
+ * Returns null if allowed, or { retryAfterSeconds } if blocked
+ */
+function checkRateLimit(
+  attemptsMap: Map<string, LoginAttempt>,
+  key: string,
+  loginSucceeded: boolean
+): { blocked: true; retryAfterSeconds: number } | { blocked: false } {
+  const now = Date.now();
+
+  // Cleanup expired entries
+  for (const [k, attempt] of attemptsMap) {
+    if ((attempt.lockedUntil && attempt.lockedUntil <= now) || (!attempt.lockedUntil && now - attempt.windowStartedAt >= LOGIN_WINDOW_MS)) {
+      attemptsMap.delete(k);
+    }
+  }
+
+  const currentAttempt = attemptsMap.get(key);
+
+  // Check if currently locked
+  if (currentAttempt?.lockedUntil && currentAttempt.lockedUntil > now) {
+    const retryAfterSeconds = Math.ceil((currentAttempt.lockedUntil - now) / 1000);
+    return { blocked: true, retryAfterSeconds };
+  }
+
+  if (loginSucceeded) {
+    attemptsMap.delete(key);
+    return { blocked: false };
+  }
+
+  // Record failed attempt
+  const attempt = currentAttempt && now - currentAttempt.windowStartedAt < LOGIN_WINDOW_MS
+    ? currentAttempt
+    : { attempts: 0, windowStartedAt: now };
+  attempt.attempts += 1;
+
+  if (attempt.attempts >= LOGIN_MAX_ATTEMPTS) {
+    attempt.lockedUntil = now + LOGIN_LOCK_MS;
+    attemptsMap.set(key, attempt);
+    return { blocked: true, retryAfterSeconds: LOGIN_LOCK_MS / 1000 };
+  }
+
+  attemptsMap.set(key, attempt);
+  return { blocked: false };
+}
 
 export class AuthController {
   /**
@@ -115,6 +164,7 @@ export class AuthController {
   /**
    * Login user
    * POST /auth/login
+   * FIX: Added rate limiting to prevent brute-force attacks
    */
   async login(req: Request, res: Response): Promise<void> {
     try {
@@ -127,15 +177,48 @@ export class AuthController {
         return;
       }
 
+      const identifier = String(emailOrPhone).trim().toLowerCase();
+
+      // Check if rate-limited BEFORE attempting login
+      const preCheck = checkRateLimit(userLoginAttempts, identifier, false);
+      // Undo the failed attempt count if we haven't actually tried yet
+      // We'll properly count after the login attempt
+      if (preCheck.blocked) {
+        res.set('Retry-After', String(preCheck.retryAfterSeconds));
+        res.status(429).json({
+          error: 'Tài khoản tạm khóa do đăng nhập sai quá nhiều lần. Vui lòng thử lại sau.',
+        });
+        return;
+      }
+      // Undo the premature increment — we check rate limit properly after login
+      const entry = userLoginAttempts.get(identifier);
+      if (entry) {
+        entry.attempts -= 1;
+        if (entry.attempts <= 0) userLoginAttempts.delete(identifier);
+      }
+
       const result = await authService.loginUser(emailOrPhone, password);
 
       if (!result) {
+        // Record failed attempt
+        const rateResult = checkRateLimit(userLoginAttempts, identifier, false);
+        if (rateResult.blocked) {
+          res.set('Retry-After', String(rateResult.retryAfterSeconds));
+          res.status(429).json({
+            error: 'Tài khoản tạm khóa do đăng nhập sai quá nhiều lần. Vui lòng thử lại sau.',
+          });
+          return;
+        }
         res.status(HTTP_STATUS.UNAUTHORIZED).json({
           error: 'Invalid credentials',
         });
         return;
       }
 
+      // Clear rate limit on success
+      checkRateLimit(userLoginAttempts, identifier, true);
+
+      // FIX: result.user already has password_hash stripped by service layer
       res.json({
         success: true,
         message: SUCCESS_MESSAGES.LOGIN_SUCCESS,
@@ -165,43 +248,51 @@ export class AuthController {
         return;
       }
 
-      const now = Date.now();
       const identifier = String(emailOrUsername).trim().toLowerCase();
-      const attemptKey = identifier;
-      for (const [key, attempt] of adminLoginAttempts) {
-        if ((attempt.lockedUntil && attempt.lockedUntil <= now) || (!attempt.lockedUntil && now - attempt.windowStartedAt >= ADMIN_LOGIN_WINDOW_MS)) {
-          adminLoginAttempts.delete(key);
-        }
-      }
 
-      const currentAttempt = adminLoginAttempts.get(attemptKey);
-      if (currentAttempt?.lockedUntil && currentAttempt.lockedUntil > now) {
-        const retryAfterSeconds = Math.ceil((currentAttempt.lockedUntil - now) / 1000);
-        res.set('Retry-After', String(retryAfterSeconds));
+      // Check if rate-limited BEFORE attempting login
+      const preCheck = checkRateLimit(adminLoginAttempts, identifier, false);
+      if (preCheck.blocked) {
+        res.set('Retry-After', String(preCheck.retryAfterSeconds));
         res.status(429).json({ error: 'Tài khoản tạm khóa do đăng nhập sai quá nhiều lần. Vui lòng thử lại sau 10 phút.' });
         return;
+      }
+      // Undo premature increment
+      const entry = adminLoginAttempts.get(identifier);
+      if (entry) {
+        entry.attempts -= 1;
+        if (entry.attempts <= 0) adminLoginAttempts.delete(identifier);
       }
 
       const result = await authService.loginAdmin(emailOrUsername, password, role);
       if (!result) {
-        const attempt = currentAttempt && now - currentAttempt.windowStartedAt < ADMIN_LOGIN_WINDOW_MS
-          ? currentAttempt
-          : { attempts: 0, windowStartedAt: now };
-        attempt.attempts += 1;
-        if (attempt.attempts >= ADMIN_LOGIN_MAX_ATTEMPTS) {
-          attempt.lockedUntil = now + ADMIN_LOGIN_LOCK_MS;
-          res.set('Retry-After', String(ADMIN_LOGIN_LOCK_MS / 1000));
-          adminLoginAttempts.set(attemptKey, attempt);
+        const rateResult = checkRateLimit(adminLoginAttempts, identifier, false);
+        if (rateResult.blocked) {
+          res.set('Retry-After', String(rateResult.retryAfterSeconds));
           res.status(429).json({ error: 'Tài khoản tạm khóa do đăng nhập sai quá nhiều lần. Vui lòng thử lại sau 10 phút.' });
           return;
         }
-        adminLoginAttempts.set(attemptKey, attempt);
         res.status(HTTP_STATUS.UNAUTHORIZED).json({ error: 'Thông tin đăng nhập admin không hợp lệ' });
         return;
       }
 
-      adminLoginAttempts.delete(attemptKey);
-      res.json({ success: true, message: SUCCESS_MESSAGES.LOGIN_SUCCESS, data: { token: result.token, user: { id: result.admin.id, email: result.admin.email, username: result.admin.username, full_name: result.admin.full_name, role: result.admin.role } } });
+      checkRateLimit(adminLoginAttempts, identifier, true);
+
+      // FIX: result.admin already has password_hash stripped by service layer
+      res.json({
+        success: true,
+        message: SUCCESS_MESSAGES.LOGIN_SUCCESS,
+        data: {
+          token: result.token,
+          user: {
+            id: result.admin.id,
+            email: result.admin.email,
+            username: result.admin.username,
+            full_name: result.admin.full_name,
+            role: result.admin.role,
+          },
+        },
+      });
     } catch (error) {
       console.error('Admin login error:', error);
       res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({ error: ERROR_MESSAGES.INTERNAL_ERROR });
@@ -228,7 +319,7 @@ export class AuthController {
 
       if (!success) {
         res.status(HTTP_STATUS.BAD_REQUEST).json({
-          error: 'Invalid verification code',
+          error: 'Invalid or expired verification code',
         });
         return;
       }

@@ -65,12 +65,13 @@ export class NotificationService {
 
   /**
    * Mark notification as read
+   * FIX: Added userId parameter to prevent IDOR — users can only mark their own notifications
    */
-  async markAsRead(notificationId: number): Promise<Notification | null> {
+  async markAsRead(notificationId: number, userId: number): Promise<Notification | null> {
     return queryOne<Notification>(
       `UPDATE notifications SET is_read = true, read_at = NOW()
-       WHERE id = $1 RETURNING *;`,
-      [notificationId]
+       WHERE id = $1 AND user_id = $2 RETURNING *;`,
+      [notificationId, userId]
     );
   }
 
@@ -102,11 +103,12 @@ export class NotificationService {
 
   /**
    * Delete notification
+   * FIX: Added userId parameter to prevent IDOR — users can only delete their own notifications
    */
-  async deleteNotification(notificationId: number): Promise<boolean> {
+  async deleteNotification(notificationId: number, userId: number): Promise<boolean> {
     const result = await query(
-      `DELETE FROM notifications WHERE id = $1 RETURNING id;`,
-      [notificationId]
+      `DELETE FROM notifications WHERE id = $1 AND user_id = $2 RETURNING id;`,
+      [notificationId, userId]
     );
 
     return result.length > 0;
@@ -214,6 +216,7 @@ export class NotificationService {
 
   /**
    * Broadcast notification to admin users
+   * FIX: Query the correct 'admins' table instead of 'users', and use correct column name 'type'
    */
   async broadcastToAdmins(
     title: string,
@@ -221,8 +224,8 @@ export class NotificationService {
     notificationType: string
   ): Promise<number> {
     const result = await query(
-      `INSERT INTO notifications (user_id, title, message, notification_type)
-       SELECT id, $1, $2, $3 FROM users WHERE role = 'admin' OR role = 'super_admin'
+      `INSERT INTO notifications (user_id, title, message, type)
+       SELECT id, $1, $2, $3 FROM admins WHERE (role = 'super_admin' OR role = 'manager') AND is_active = true
        RETURNING id;`,
       [title, message, notificationType]
     );
