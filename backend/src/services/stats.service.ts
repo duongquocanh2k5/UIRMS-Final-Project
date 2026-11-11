@@ -65,10 +65,10 @@ export class StatsService {
            SELECT status, priority, created_at, completed_at,
                   EXTRACT(EPOCH FROM (completed_at - created_at)) / 86400.0 AS processing_days,
                   CASE priority
-                    WHEN 'critical' THEN 2 * 60 * 60
-                    WHEN 'high' THEN 24 * 60 * 60
-                    WHEN 'medium' THEN 3 * 24 * 60 * 60
-                    WHEN 'low' THEN 7 * 24 * 60 * 60
+                    WHEN 'critical' THEN 24 * 60 * 60
+                    WHEN 'high' THEN 48 * 60 * 60
+                    WHEN 'medium' THEN 72 * 60 * 60
+                    WHEN 'low' THEN 120 * 60 * 60
                     ELSE 0
                   END AS sla_seconds
            FROM incidents
@@ -164,12 +164,12 @@ export class StatsService {
 
     async getByDistrict(range: StatsDateRange): Promise<DistrictStatsResponse[]> {
         const rows = await query<{ district: string; total: number }>(
-            `SELECT COALESCE(NULLIF(BTRIM(district), ''), 'Không xác định') AS district,
+            `SELECT COALESCE(NULLIF(BTRIM(district), ''), 'Unspecified') AS district,
               COUNT(*)::int AS total
        FROM incidents
        WHERE deleted_at IS NULL
          AND created_at >= $1::date AND created_at < $2::date
-       GROUP BY COALESCE(NULLIF(BTRIM(district), ''), 'Không xác định')
+       GROUP BY COALESCE(NULLIF(BTRIM(district), ''), 'Unspecified')
        ORDER BY total DESC, district ASC
        LIMIT 5;`,
             [range.from, range.toExclusive]

@@ -6,6 +6,25 @@
 import { query, queryOne, transaction } from '../config/database';
 import { Incident, PaginationParams, IncidentFilters } from '../types/index';
 import { calculateOffset } from '../utils/helpers';
+import { notificationService } from './notification.service';
+
+function parseCitizenComment(rawComment?: string | null): { rating: number | null; feedback: string | null } {
+  if (!rawComment) return { rating: null, feedback: null };
+  const trimmed = rawComment.trim();
+  if (trimmed.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      const rating = Number(parsed?.rating);
+      return {
+        rating: Number.isInteger(rating) && rating >= 1 && rating <= 5 ? rating : null,
+        feedback: typeof parsed?.feedback === 'string' && parsed.feedback.trim() ? parsed.feedback.trim() : null,
+      };
+    } catch {
+      return { rating: null, feedback: trimmed };
+    }
+  }
+  return { rating: null, feedback: trimmed };
+}
 
 interface AdminIncidentUpdate {
   assigned_technician?: number | null;
@@ -25,59 +44,72 @@ function getIntervalDays(period: string): number {
   }
 }
 
+const incidentStatusLabels: Record<string, string> = {
+  pending: 'Pending',
+  assigned: 'Assigned',
+  in_progress: 'In Progress',
+  completed: 'Completed',
+  rejected: 'Rejected',
+};
+
 export class AdminService {
   /**
    * Get dashboard statistics
    */
-  async getDashboardStats(): Promise<{
+  async getDashboardStats(requester?: { id: number; role: string }): Promise<{
     totalIncidents: number;
     newIncidents: number;
     openIncidents: number;
+    assignedIncidents: number;
+    unassignedIncidents: number;
     inProgressIncidents: number;
     completedIncidents: number;
     urgentIncidents: number;
     averageResolutionTime: string;
     highPriorityCount: number;
   }> {
-    const total = await query<{ count: string }>(
-      `SELECT COUNT(*) as count FROM incidents WHERE deleted_at IS NULL;`
-    );
+    const isTech = requester?.role === 'technician';
+    const scopeClause = isTech ? 'AND (assigned_to = $1 OR assigned_technician = $1)' : '';
+    const params = isTech ? [requester.id] : [];
 
-    const open = await query<{ count: string }>(
-      `SELECT COUNT(*) as count FROM incidents WHERE status = 'pending' AND deleted_at IS NULL;`
+    const stats = await query<{
+      total_count: string;
+      pending_count: string;
+      assigned_count: string;
+      unassigned_count: string;
+      in_progress_count: string;
+      completed_count: string;
+      critical_count: string;
+      avg_time: string | null;
+      high_priority_count: string;
+    }>(
+      `SELECT
+         COUNT(*) FILTER (WHERE deleted_at IS NULL ${scopeClause}) AS total_count,
+         COUNT(*) FILTER (WHERE status = 'pending' AND deleted_at IS NULL ${scopeClause}) AS pending_count,
+         COUNT(*) FILTER (WHERE status = 'assigned' AND deleted_at IS NULL ${scopeClause}) AS assigned_count,
+         COUNT(*) FILTER (WHERE status = 'pending' AND assigned_to IS NULL AND assigned_technician IS NULL AND deleted_at IS NULL ${scopeClause}) AS unassigned_count,
+         COUNT(*) FILTER (WHERE status = 'in_progress' AND deleted_at IS NULL ${scopeClause}) AS in_progress_count,
+         COUNT(*) FILTER (WHERE status = 'completed' AND deleted_at IS NULL ${scopeClause}) AS completed_count,
+         COUNT(*) FILTER (WHERE priority = 'critical' AND deleted_at IS NULL ${scopeClause}) AS critical_count,
+         AVG(EXTRACT(EPOCH FROM (completed_at - created_at))/3600)
+           FILTER (WHERE status = 'completed' AND completed_at IS NOT NULL AND deleted_at IS NULL ${scopeClause}) AS avg_time,
+         COUNT(*) FILTER (WHERE priority = 'high' AND deleted_at IS NULL ${scopeClause}) AS high_priority_count
+       FROM incidents;`,
+      params
     );
-
-    const inProgress = await query<{ count: string }>(
-      `SELECT COUNT(*) as count FROM incidents WHERE status = 'in_progress' AND deleted_at IS NULL;`
-    );
-
-    const completed = await query<{ count: string }>(
-      `SELECT COUNT(*) as count FROM incidents WHERE status = 'completed' AND deleted_at IS NULL;`
-    );
-
-    const urgent = await query<{ count: string }>(
-      `SELECT COUNT(*) as count FROM incidents WHERE priority = 'critical' AND deleted_at IS NULL;`
-    );
-
-    const avgTime = await query<{ avg_time: string }>(
-      `SELECT AVG(EXTRACT(EPOCH FROM (completed_at - created_at))/3600) as avg_time
-       FROM incidents 
-       WHERE status = 'completed' AND completed_at IS NOT NULL AND deleted_at IS NULL;`
-    );
-
-    const highPriority = await query<{ count: string }>(
-      `SELECT COUNT(*) as count FROM incidents WHERE priority = 'high' AND deleted_at IS NULL;`
-    );
+    const dashboard = stats[0];
 
     return {
-      totalIncidents: parseInt(total[0]?.count || '0', 10),
-      newIncidents: parseInt(open[0]?.count || '0', 10),
-      openIncidents: parseInt(open[0]?.count || '0', 10),
-      inProgressIncidents: parseInt(inProgress[0]?.count || '0', 10),
-      completedIncidents: parseInt(completed[0]?.count || '0', 10),
-      urgentIncidents: parseInt(urgent[0]?.count || '0', 10),
-      averageResolutionTime: avgTime[0]?.avg_time ? `${parseFloat(avgTime[0].avg_time).toFixed(2)} hours` : 'N/A',
-      highPriorityCount: parseInt(highPriority[0]?.count || '0', 10),
+      totalIncidents: parseInt(dashboard?.total_count || '0', 10),
+      newIncidents: parseInt(dashboard?.pending_count || '0', 10),
+      openIncidents: parseInt(dashboard?.pending_count || '0', 10),
+      assignedIncidents: parseInt(dashboard?.assigned_count || '0', 10),
+      unassignedIncidents: parseInt(dashboard?.unassigned_count || '0', 10),
+      inProgressIncidents: parseInt(dashboard?.in_progress_count || '0', 10),
+      completedIncidents: parseInt(dashboard?.completed_count || '0', 10),
+      urgentIncidents: parseInt(dashboard?.critical_count || '0', 10),
+      averageResolutionTime: dashboard?.avg_time ? `${parseFloat(dashboard.avg_time).toFixed(2)} hours` : 'N/A',
+      highPriorityCount: parseInt(dashboard?.high_priority_count || '0', 10),
     };
   }
 
@@ -191,6 +223,20 @@ export class AdminService {
             FROM incident_images WHERE incident_id = i.id), '[]') AS image_urls,
               u.email AS user_email, u.phone AS user_phone, u.full_name AS user_name,
               c.name AS category_name,
+              (
+                SELECT ic.comment
+                FROM incident_comments ic
+                WHERE ic.incident_id = i.id AND ic.deleted_at IS NULL
+                ORDER BY ic.updated_at DESC, ic.id DESC
+                LIMIT 1
+              ) AS latest_citizen_comment,
+              (
+                SELECT COALESCE(ic.updated_at, ic.created_at)
+                FROM incident_comments ic
+                WHERE ic.incident_id = i.id AND ic.deleted_at IS NULL
+                ORDER BY ic.updated_at DESC, ic.id DESC
+                LIMIT 1
+              ) AS citizen_feedback_at,
               ROUND(ST_Y(i.location_point)::numeric, 6) AS latitude,
               ROUND(ST_X(i.location_point)::numeric, 6) AS longitude
        FROM incidents i
@@ -203,6 +249,11 @@ export class AdminService {
       params
     );
     if (!incident) return null;
+
+    const parsedComment = parseCitizenComment(incident.latest_citizen_comment);
+    incident.citizen_rating = parsedComment.rating;
+    incident.citizen_feedback = parsedComment.feedback;
+    delete incident.latest_citizen_comment;
 
     incident.nearby_incident_count = null;
     if (incident.latitude !== null && incident.latitude !== undefined
@@ -350,11 +401,32 @@ export class AdminService {
          VALUES ($1, 'status_changed', $2, $3, $4, $5, $6, $7)`,
         [incidentId, currentIncident.status, result.status, currentIncident.assigned_to ?? null, result.assigned_to ?? null, rejectionReason?.trim() || null, performedBy]
       );
-      if (status === 'rejected') {
+      let emailTrigger: { userId: number; title?: string; statusLabel: string; message: string } | null = null;
+      if (currentIncident.status !== result.status) {
+        const statusLabel = incidentStatusLabels[result.status] || result.status;
+        const message = status === 'rejected'
+          ? `Your report was rejected. Reason: ${rejectionReason!.trim()}`
+          : `Your report status has been updated to: ${statusLabel}.`;
+        const title = `Incident #INC-${incidentId} Updated`;
         await client.query(
           `INSERT INTO notifications (user_id, incident_id, title, message, type)
            VALUES ($1, $2, $3, $4, 'status_update')`,
-          [currentIncident.user_id, incidentId, `Báo cáo BC-${incidentId} bị từ chối`, `Lý do: ${rejectionReason!.trim()}`]
+          [currentIncident.user_id, incidentId, title, message]
+        );
+        emailTrigger = {
+          userId: currentIncident.user_id,
+          title: currentIncident.title,
+          statusLabel,
+          message,
+        };
+      }
+      if (emailTrigger) {
+        void notificationService.sendStatusEmailIfEnabled(
+          emailTrigger.userId,
+          incidentId,
+          emailTrigger.title,
+          emailTrigger.statusLabel,
+          emailTrigger.message
         );
       }
       return result;
@@ -364,14 +436,26 @@ export class AdminService {
   async getStaff(managerId?: number): Promise<any[]> {
     const accountScope = managerId === undefined
       ? ''
-      : `AND role = 'technician'
-         AND department_id = (SELECT department_id FROM admins WHERE id = $1 AND role = 'manager' AND is_active = true)`;
+      : `AND a.role = 'technician'
+         AND a.department_id = (SELECT department_id FROM admins WHERE id = $1 AND role = 'manager' AND is_active = true)`;
     const params = managerId === undefined ? [] : [managerId];
     return query(
-      `SELECT id, username, email, full_name, role, is_active, created_at,
-              COALESCE(is_active AND last_seen_at >= NOW() - INTERVAL '90 seconds', false) AS is_online
-       FROM admins WHERE deleted_at IS NULL ${accountScope}
-       ORDER BY full_name NULLS LAST, username`,
+      `SELECT a.id, a.username, a.email, a.full_name, a.role, a.is_active, a.created_at,
+              COALESCE(a.is_active AND a.last_seen_at >= NOW() - INTERVAL '90 seconds', false) AS is_online,
+              COALESCE((
+                SELECT COUNT(*)::int FROM incidents i
+                WHERE i.deleted_at IS NULL
+                  AND (i.assigned_to = a.id OR i.assigned_technician = a.id)
+                  AND i.status IN ('pending', 'assigned', 'in_progress')
+              ), 0) AS active_count,
+              COALESCE((
+                SELECT COUNT(*)::int FROM incidents i
+                WHERE i.deleted_at IS NULL
+                  AND (i.assigned_to = a.id OR i.assigned_technician = a.id)
+                  AND i.status = 'completed'
+              ), 0) AS completed_count
+       FROM admins a WHERE a.deleted_at IS NULL ${accountScope}
+       ORDER BY a.full_name NULLS LAST, a.username`,
       params
     );
   }
@@ -382,7 +466,7 @@ export class AdminService {
       : `AND EXISTS (SELECT 1 FROM incidents i WHERE i.id = h.incident_id
                      AND i.deleted_at IS NULL AND (i.assigned_to = $2 OR i.assigned_technician = $2))`;
     return query(
-      `SELECT h.*, a.full_name AS performed_by_name
+      `SELECT h.*, h.created_at AT TIME ZONE 'UTC' AS created_at, a.full_name AS performed_by_name
        FROM incident_history h
        JOIN admins a ON a.id = h.performed_by
        WHERE h.incident_id = $1 ${assignmentScope}
@@ -397,7 +481,9 @@ export class AdminService {
       : `AND EXISTS (SELECT 1 FROM incidents i WHERE i.id = n.incident_id
                      AND i.deleted_at IS NULL AND (i.assigned_to = $2 OR i.assigned_technician = $2))`;
     return query(
-      `SELECT n.*, a.full_name AS created_by_name
+      `SELECT n.id, n.incident_id, n.note, n.created_by,
+              n.created_at AT TIME ZONE 'UTC' AS created_at,
+              a.full_name AS created_by_name, a.username AS created_by_username
        FROM incident_notes n
        JOIN admins a ON a.id = n.created_by
        WHERE n.incident_id = $1 ${assignmentScope}
@@ -419,11 +505,20 @@ export class AdminService {
         `INSERT INTO incident_notes (incident_id, note, created_by) VALUES ($1, $2, $3) RETURNING *`,
         [incidentId, note, createdBy]
       );
+      const createdWithAuthor = await client.query(
+        `SELECT n.id, n.incident_id, n.note, n.created_by,
+                n.created_at AT TIME ZONE 'UTC' AS created_at,
+                a.full_name AS created_by_name, a.username AS created_by_username
+         FROM incident_notes n
+         JOIN admins a ON a.id = n.created_by
+         WHERE n.id = $1`,
+        [created.rows[0].id]
+      );
       await client.query(
         `INSERT INTO incident_history (incident_id, action, note, performed_by) VALUES ($1, 'note_added', $2, $3)`,
         [incidentId, note, createdBy]
       );
-      return created.rows[0];
+      return createdWithAuthor.rows[0];
     });
   }
 
@@ -431,7 +526,7 @@ export class AdminService {
    * Get incident analytics for dashboard
    * FIX: Uses parameterized interval instead of string interpolation to prevent SQL injection
    */
-  async getIncidentAnalytics(period: string): Promise<{
+  async getIncidentAnalytics(period: string, requester?: { id: number; role: string }): Promise<{
     period: string;
     incidents: Array<{ date: string; count: number; completed: number }>;
     avgResolutionTime: string;
@@ -444,6 +539,10 @@ export class AdminService {
       dateFormat = 'YYYY-MM-DD HH:00';
     }
 
+    const isTech = requester?.role === 'technician';
+    const techScopeIncidents = isTech ? 'AND (assigned_to = $3 OR assigned_technician = $3)' : '';
+    const techScopeAvg = isTech ? 'AND (assigned_to = $2 OR assigned_technician = $2)' : '';
+
     // FIX: Use parameterized query with make_interval() instead of string interpolation
     const incidents = await query<{ date: string; count: string; completed: string }>(
       `SELECT 
@@ -453,9 +552,10 @@ export class AdminService {
        FROM incidents
        WHERE created_at > NOW() - make_interval(days => $2)
        AND deleted_at IS NULL
+       ${techScopeIncidents}
        GROUP BY TO_CHAR(created_at, $1)
        ORDER BY date;`,
-      [dateFormat, intervalDays]
+      isTech ? [dateFormat, intervalDays, requester.id] : [dateFormat, intervalDays]
     );
 
     const avgTimeResult = await query<{ avg_time: string }>(
@@ -463,8 +563,9 @@ export class AdminService {
        FROM incidents 
        WHERE created_at > NOW() - make_interval(days => $1)
        AND status = 'completed' AND completed_at IS NOT NULL
-       AND deleted_at IS NULL;`,
-      [intervalDays]
+       AND deleted_at IS NULL
+       ${techScopeAvg};`,
+      isTech ? [intervalDays, requester.id] : [intervalDays]
     );
 
     const totalInPeriod = await query<{ total: string; completed: string }>(
@@ -473,8 +574,9 @@ export class AdminService {
         SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed
        FROM incidents
        WHERE created_at > NOW() - make_interval(days => $1)
-       AND deleted_at IS NULL;`,
-      [intervalDays]
+       AND deleted_at IS NULL
+       ${techScopeAvg};`,
+      isTech ? [intervalDays, requester.id] : [intervalDays]
     );
 
     const total = parseInt(totalInPeriod[0]?.total || '0', 10);
@@ -513,7 +615,7 @@ export class AdminService {
         COUNT(*) as assigned_count,
         SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed_count,
         AVG(EXTRACT(EPOCH FROM (completed_at - created_at))/3600) as avg_resolution_time,
-        SUM(CASE WHEN status IN ('open', 'in_progress') THEN 1 ELSE 0 END) as current_load
+        SUM(CASE WHEN status IN ('pending', 'assigned', 'in_progress') THEN 1 ELSE 0 END) as current_load
        FROM incidents
        WHERE deleted_at IS NULL
        GROUP BY COALESCE(assigned_technician, 'Unassigned')
@@ -524,16 +626,65 @@ export class AdminService {
   /**
    * Get heatmap data for visualization
    */
-  async getHeatmapData(): Promise<Array<{ lat: number; lng: number; count: number }>> {
+  async getHeatmapData(categoryId?: number, requester?: { id: number; role: string }): Promise<Array<{ lat: number; lng: number; count: number }>> {
+    const params: any[] = [];
+    const conditions = ['deleted_at IS NULL', 'location_point IS NOT NULL'];
+
+    if (categoryId !== undefined) {
+      params.push(categoryId);
+      conditions.push(`category_id = $${params.length}`);
+    }
+    if (requester?.role === 'technician') {
+      params.push(requester.id);
+      conditions.push(`(assigned_to = $${params.length} OR assigned_technician = $${params.length})`);
+    }
+
     return query<{ lat: number; lng: number; count: number }>(
       `SELECT 
         ROUND(ST_Y(location_point)::numeric, 2) as lat,
         ROUND(ST_X(location_point)::numeric, 2) as lng,
         COUNT(*) as count
        FROM incidents
-       WHERE deleted_at IS NULL AND location_point IS NOT NULL
+       WHERE ${conditions.join(' AND ')}
        GROUP BY ROUND(ST_Y(location_point)::numeric, 2), ROUND(ST_X(location_point)::numeric, 2)
-       ORDER BY count DESC;`
+       ORDER BY count DESC;`,
+      params
+    );
+  }
+
+  async getMapIncidentPoints(categoryId?: number, requester?: { id: number; role: string }): Promise<Array<{
+    id: number;
+    title: string;
+    status: string;
+    category_id: number;
+    category_name: string | null;
+    category_color: string | null;
+    lat: number;
+    lng: number;
+  }>> {
+    const params: any[] = [];
+    const conditions = ['i.deleted_at IS NULL', 'i.location_point IS NOT NULL'];
+
+    if (categoryId !== undefined) {
+      params.push(categoryId);
+      conditions.push(`i.category_id = $${params.length}`);
+    }
+    if (requester?.role === 'technician') {
+      params.push(requester.id);
+      conditions.push(`(i.assigned_to = $${params.length} OR i.assigned_technician = $${params.length})`);
+    }
+
+    return query(
+      `SELECT i.id, i.title, i.status, i.category_id,
+              c.name AS category_name,
+              COALESCE(c.color, c.color_code) AS category_color,
+              ST_Y(i.location_point)::float8 AS lat,
+              ST_X(i.location_point)::float8 AS lng
+       FROM incidents i
+       LEFT JOIN categories c ON c.id = i.category_id
+       WHERE ${conditions.join(' AND ')}
+       ORDER BY i.created_at DESC;`,
+      params
     );
   }
 
@@ -618,12 +769,12 @@ export class AdminService {
         SUM(CASE WHEN DATE(completed_at) = CURRENT_DATE THEN 1 ELSE 0 END) as completed_today,
         CASE 
           WHEN COUNT(CASE WHEN status = 'in_progress' THEN 1 END) > 0 THEN 'Busy'
-          WHEN COUNT(CASE WHEN status IN ('open', 'on_hold') THEN 1 END) > 0 THEN 'Available'
+          WHEN COUNT(CASE WHEN status IN ('pending', 'assigned') THEN 1 END) > 0 THEN 'Available'
           ELSE 'Idle'
         END as status
        FROM incidents
        WHERE assigned_technician IS NOT NULL
-       AND status IN ('open', 'in_progress', 'on_hold')
+       AND status IN ('pending', 'assigned', 'in_progress')
        AND deleted_at IS NULL
        GROUP BY assigned_technician
        ORDER BY active_incidents DESC;`

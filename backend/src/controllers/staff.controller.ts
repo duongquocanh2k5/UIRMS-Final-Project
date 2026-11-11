@@ -78,7 +78,7 @@ export class StaffController {
         } catch (error) {
             console.error('Create staff error:', error);
             if (error instanceof Error && error.message === 'MANAGER_DEPARTMENT_REQUIRED') {
-                res.status(HTTP_STATUS.CONFLICT).json({ error: 'Quản lý chưa được gán đơn vị.' });
+                res.status(HTTP_STATUS.CONFLICT).json({ error: 'The manager has not been assigned to a department.' });
                 return;
             }
             if ((error as { code?: string }).code === '23505') {

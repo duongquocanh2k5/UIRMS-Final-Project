@@ -7,7 +7,7 @@ import { Router } from 'express';
 import authRoutes from './auth.routes';
 import incidentRoutes from './incidents.routes';
 import adminRoutes from './admin.routes';
-import notificationRoutes from './notifications.routes';
+import notificationRoutes from './notification.routes';
 import statsRoutes from './stats.routes';
 import staffRoutes from './staff.routes';
 import adminsRoutes from './admins.routes';

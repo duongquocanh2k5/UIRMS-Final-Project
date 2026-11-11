@@ -7,11 +7,19 @@ import { Notification } from '../types/index';
 import { query, queryOne } from '../config/database';
 import { PaginationParams } from '../types/index';
 import { calculateOffset } from '../utils/helpers';
+import { emailService } from './email.service';
 
 interface NotificationPreferences {
   emailNotifications?: boolean;
   pushNotifications?: boolean;
   smsNotifications?: boolean;
+}
+
+interface NotificationPreferencesRow {
+  user_id: number;
+  email_notifications: boolean;
+  push_notifications: boolean;
+  sms_notifications: boolean;
 }
 
 export class NotificationService {
@@ -34,7 +42,54 @@ export class NotificationService {
       [userId, incidentId || null, title, message, notificationType]
     );
 
-    return result[0]!;
+    const created = result[0]!;
+
+    if (incidentId && (notificationType === 'new_reply' || notificationType === 'status_update')) {
+      void this.sendStatusEmailIfEnabled(
+        userId,
+        incidentId,
+        title,
+        notificationType === 'new_reply' ? 'Phản hồi từ Ban quản lý / Admin Reply' : 'Cập nhật trạng thái / Status Update',
+        message
+      );
+    }
+
+    return created;
+  }
+
+  /**
+   * Send incident status/reply email if the citizen has email notifications enabled
+   */
+  async sendStatusEmailIfEnabled(
+    userId: number,
+    incidentId: number,
+    incidentTitle: string | undefined,
+    statusLabel: string,
+    message: string
+  ): Promise<void> {
+    try {
+      const prefs = await this.getPreferences(userId);
+      if (!prefs.emailNotifications) {
+        return;
+      }
+
+      const userRow = await queryOne<{ email: string }>(
+        `SELECT email FROM users WHERE id = $1 AND deleted_at IS NULL;`,
+        [userId]
+      );
+      if (!userRow?.email) {
+        return;
+      }
+
+      await emailService.sendIncidentStatusEmail(userRow.email, {
+        incidentId,
+        incidentTitle,
+        statusLabel,
+        message,
+      });
+    } catch (error) {
+      console.error('Failed to send incident status notification email:', error);
+    }
   }
 
   /**
@@ -135,8 +190,22 @@ export class NotificationService {
     pushNotifications: boolean;
     smsNotifications: boolean;
   }> {
-    // For now, return default preferences
-    // In production, these would be stored in a user_preferences table
+    const preferences = await queryOne<NotificationPreferencesRow>(
+      `SELECT user_id, email_notifications, push_notifications, sms_notifications
+       FROM user_notification_preferences
+       WHERE user_id = $1;`,
+      [userId]
+    );
+
+    if (preferences) {
+      return {
+        userId: preferences.user_id,
+        emailNotifications: preferences.email_notifications,
+        pushNotifications: preferences.push_notifications,
+        smsNotifications: preferences.sms_notifications,
+      };
+    }
+
     return {
       userId,
       emailNotifications: true,
@@ -151,12 +220,39 @@ export class NotificationService {
   async updatePreferences(
     userId: number,
     preferences: NotificationPreferences
-  ): Promise<NotificationPreferences> {
-    // In production, these would be stored in user_preferences table
+  ): Promise<{
+    userId: number;
+    emailNotifications: boolean;
+    pushNotifications: boolean;
+    smsNotifications: boolean;
+  }> {
+    const updated = await queryOne<NotificationPreferencesRow>(
+      `INSERT INTO user_notification_preferences
+         (user_id, email_notifications, push_notifications, sms_notifications)
+       VALUES ($1, COALESCE($2::boolean, TRUE), COALESCE($3::boolean, TRUE), COALESCE($4::boolean, FALSE))
+       ON CONFLICT (user_id) DO UPDATE SET
+         email_notifications = COALESCE($2::boolean, user_notification_preferences.email_notifications),
+         push_notifications = COALESCE($3::boolean, user_notification_preferences.push_notifications),
+         sms_notifications = COALESCE($4::boolean, user_notification_preferences.sms_notifications),
+         updated_at = NOW()
+       RETURNING user_id, email_notifications, push_notifications, sms_notifications;`,
+      [
+        userId,
+        preferences.emailNotifications ?? null,
+        preferences.pushNotifications ?? null,
+        preferences.smsNotifications ?? null,
+      ]
+    );
+
+    if (!updated) {
+      throw new Error('Failed to update notification preferences');
+    }
+
     return {
-      emailNotifications: preferences.emailNotifications ?? true,
-      pushNotifications: preferences.pushNotifications ?? true,
-      smsNotifications: preferences.smsNotifications ?? false,
+      userId: updated.user_id,
+      emailNotifications: updated.email_notifications,
+      pushNotifications: updated.push_notifications,
+      smsNotifications: updated.sms_notifications,
     };
   }
 
@@ -216,21 +312,14 @@ export class NotificationService {
 
   /**
    * Broadcast notification to admin users
-   * FIX: Query the correct 'admins' table instead of 'users', and use correct column name 'type'
    */
   async broadcastToAdmins(
     title: string,
     message: string,
     notificationType: string
   ): Promise<number> {
-    const result = await query(
-      `INSERT INTO notifications (user_id, title, message, type)
-       SELECT id, $1, $2, $3 FROM admins WHERE (role = 'super_admin' OR role = 'manager') AND is_active = true
-       RETURNING id;`,
-      [title, message, notificationType]
-    );
-
-    return result.length;
+    // notifications.user_id references users, so admin IDs must not be inserted here.
+    return 0;
   }
 }
 

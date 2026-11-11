@@ -23,7 +23,7 @@ export class CategoriesController {
     async create(req: Request, res: Response): Promise<void> {
         const input = req.body as CategoryInput;
         if (!input.name?.trim()) {
-            res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Tên danh mục không được để trống' });
+            res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Category name is required.' });
             return;
         }
         try {
@@ -40,7 +40,7 @@ export class CategoriesController {
         } catch (error) {
             console.error('Create category error:', error);
             if ((error as { code?: string }).code === '23505') {
-                res.status(HTTP_STATUS.CONFLICT).json({ error: 'Tên danh mục đã tồn tại' });
+                res.status(HTTP_STATUS.CONFLICT).json({ error: 'A category with this name already exists.' });
                 return;
             }
             res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({ error: ERROR_MESSAGES.INTERNAL_ERROR });
@@ -50,17 +50,17 @@ export class CategoriesController {
     async update(req: Request, res: Response): Promise<void> {
         const categoryId = parseId(req.params.id as string);
         if (!categoryId) {
-            res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Mã danh mục không hợp lệ' });
+            res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Invalid category ID.' });
             return;
         }
         const allowedFields = new Set(['name', 'icon', 'color']);
         const body = req.body as Record<string, unknown>;
         if (Object.keys(body).length === 0 || Object.keys(body).some((field) => !allowedFields.has(field))) {
-            res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Chỉ được cập nhật name, icon và color' });
+            res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Only name, icon, and color can be updated.' });
             return;
         }
         if (body.name !== undefined && (typeof body.name !== 'string' || !body.name.trim())) {
-            res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Tên danh mục không được để trống' });
+            res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Category name is required.' });
             return;
         }
 
@@ -78,7 +78,7 @@ export class CategoriesController {
         } catch (error) {
             console.error('Update category error:', error);
             if ((error as { code?: string }).code === '23505') {
-                res.status(HTTP_STATUS.CONFLICT).json({ error: 'Tên danh mục đã tồn tại' });
+                res.status(HTTP_STATUS.CONFLICT).json({ error: 'A category with this name already exists.' });
                 return;
             }
             res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({ error: ERROR_MESSAGES.INTERNAL_ERROR });
@@ -88,7 +88,7 @@ export class CategoriesController {
     async delete(req: Request, res: Response): Promise<void> {
         const categoryId = parseId(req.params.id as string);
         if (!categoryId) {
-            res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Mã danh mục không hợp lệ' });
+            res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Invalid category ID.' });
             return;
         }
 
@@ -99,7 +99,7 @@ export class CategoriesController {
                 return;
             }
             if (result.reportCount > 0) {
-                res.status(HTTP_STATUS.CONFLICT).json({ error: `Không thể xóa danh mục đang có ${result.reportCount} báo cáo sử dụng` });
+                res.status(HTTP_STATUS.CONFLICT).json({ error: `This category cannot be deleted because it is used by ${result.reportCount} report(s).` });
                 return;
             }
             res.json({ success: true, data: { id: categoryId } });

@@ -8,8 +8,48 @@ import { AuthRequest } from '../middlewares/auth.middleware';
 import { incidentService } from '../services/incident.service';
 import { HTTP_STATUS, ERROR_MESSAGES, SUCCESS_MESSAGES, PAGINATION } from '../config/constants';
 import { validatePaginationParams } from '../utils/validators';
+import { aiService, type ChatMessage } from '../services/ai.service';
 
 export class IncidentController {
+  async chatWithAI(req: AuthRequest, res: Response): Promise<void> {
+    const lang = req.body?.language === 'en' ? 'en' : 'vi';
+    const userId = req.user?.id;
+    if (!userId) {
+      res.status(HTTP_STATUS.UNAUTHORIZED).json({ error: ERROR_MESSAGES.UNAUTHORIZED });
+      return;
+    }
+
+    const { message, history } = req.body as { message?: unknown; history?: unknown };
+    if (typeof message !== 'string' || !message.trim() || message.length > 1000) {
+      res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'message must be a string between 1 and 1,000 characters.' });
+      return;
+    }
+
+    const recentHistory: ChatMessage[] = Array.isArray(history)
+      ? history.slice(-10).flatMap((item): ChatMessage[] => {
+        if (!item || (item.role !== 'user' && item.role !== 'model') || typeof item.text !== 'string') return [];
+        const text = item.text.trim();
+        return text ? [{ role: item.role, text: text.slice(0, 1000) }] : [];
+      })
+      : [];
+
+    try {
+      const result = await aiService.chatWithAssistant(userId, message.trim(), recentHistory, lang);
+      res.json({ success: true, data: result });
+    } catch (error) {
+      console.error('AI assistant controller error:', error);
+      res.json({
+        success: true,
+        data: {
+          reply: lang === 'vi'
+            ? 'Trợ lý UIRMS hiện tạm thời không khả dụng. Bạn vẫn có thể gửi và quản lý báo cáo trong ứng dụng.'
+            : 'The UIRMS assistant is temporarily unavailable. You can still submit and manage reports in the application.',
+          suggestedCategoryId: null,
+        },
+      });
+    }
+  }
+
   /**
    * Create new incident
    * POST /incidents
@@ -88,17 +128,25 @@ export class IncidentController {
       const file = req.file;
 
       if (!userId || !file) {
-        res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Ảnh tải lên không hợp lệ' });
+        res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'The uploaded image is invalid.' });
         return;
       }
 
-      const saved = await incidentService.addIncidentImage(incidentId, userId, `/uploads/incidents/${file.filename}`);
+      const imageUrl = `/uploads/incidents/${file.filename}`;
+      const saved = await incidentService.addIncidentImage(incidentId, userId, imageUrl, file.path);
       if (!saved) {
         res.status(HTTP_STATUS.NOT_FOUND).json({ error: ERROR_MESSAGES.NOT_FOUND });
         return;
       }
 
-      res.status(HTTP_STATUS.CREATED).json({ success: true, data: { image_url: `/uploads/incidents/${file.filename}` } });
+      res.status(HTTP_STATUS.CREATED).json({
+        success: true,
+        data: {
+          id: saved.image_id,
+          image_url: imageUrl,
+          ai_analysis: saved.ai_analysis,
+        },
+      });
     } catch (error) {
       console.error('Upload incident image error:', error);
       res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({ error: ERROR_MESSAGES.INTERNAL_ERROR });
@@ -194,34 +242,45 @@ export class IncidentController {
   /**
    * Update incident
    * PUT /incidents/:incidentId
-   * FIX: Regular users can only update their own incidents
+   * FIX: Regular users can only update their own pending incidents and cannot modify status or assignment
    */
   async updateIncident(req: AuthRequest, res: Response): Promise<void> {
     try {
       const { incidentId } = req.params;
       const userId = req.user?.id;
       const userRole = req.user?.role;
-      const { status, priority, assigned_to, assigned_technician } = req.body;
+      const { title, description, category_id, location_name, status, priority, assigned_to, assigned_technician } = req.body;
 
       if (!userId) {
         res.status(HTTP_STATUS.UNAUTHORIZED).json({ error: ERROR_MESSAGES.UNAUTHORIZED });
         return;
       }
 
-      // Regular users can only update their own incidents
+      // Regular users can only update their own pending incidents and cannot alter status/assignee
       if (userRole === 'user') {
         const incident = await incidentService.getIncidentById(parseInt(incidentId as string, 10));
         if (!incident || incident.user_id !== userId) {
           res.status(HTTP_STATUS.FORBIDDEN).json({ error: ERROR_MESSAGES.FORBIDDEN });
           return;
         }
+        if (
+          incident.status !== 'pending' ||
+          status !== undefined ||
+          assigned_to !== undefined ||
+          assigned_technician !== undefined
+        ) {
+          res.status(HTTP_STATUS.FORBIDDEN).json({ error: ERROR_MESSAGES.FORBIDDEN });
+          return;
+        }
       }
 
       const updated = await incidentService.updateIncident(parseInt(incidentId as string, 10), {
-        status,
+        title,
+        description,
+        category_id,
+        location_name,
+        ...(userRole !== 'user' ? { status, assigned_to, assigned_technician } : {}),
         priority,
-        assigned_to,
-        assigned_technician,
       });
 
       if (!updated) {
@@ -280,26 +339,14 @@ export class IncidentController {
   /**
    * Mark incident as completed
    * PATCH /incidents/:incidentId/complete
-   * FIX: Regular users can only complete their own incidents
    */
   async completeIncident(req: AuthRequest, res: Response): Promise<void> {
     try {
       const { incidentId } = req.params;
       const userId = req.user?.id;
-      const userRole = req.user?.role;
-
       if (!userId) {
         res.status(HTTP_STATUS.UNAUTHORIZED).json({ error: ERROR_MESSAGES.UNAUTHORIZED });
         return;
-      }
-
-      // Regular users can only complete their own incidents
-      if (userRole === 'user') {
-        const incident = await incidentService.getIncidentById(parseInt(incidentId as string, 10));
-        if (!incident || incident.user_id !== userId) {
-          res.status(HTTP_STATUS.FORBIDDEN).json({ error: ERROR_MESSAGES.FORBIDDEN });
-          return;
-        }
       }
 
       const updated = await incidentService.markCompleted(parseInt(incidentId as string, 10));
@@ -316,6 +363,61 @@ export class IncidentController {
       });
     } catch (error) {
       console.error('Complete incident error:', error);
+      res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+        error: ERROR_MESSAGES.INTERNAL_ERROR,
+      });
+    }
+  }
+
+  /**
+   * Submit citizen rating & feedback for completed incident
+   * POST /incidents/:incidentId/feedback
+   */
+  async submitCitizenFeedback(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const incidentId = parseInt(req.params.incidentId as string, 10);
+      const userId = req.user?.id;
+      const { rating, feedback } = req.body;
+
+      if (!userId) {
+        res.status(HTTP_STATUS.UNAUTHORIZED).json({ error: ERROR_MESSAGES.UNAUTHORIZED });
+        return;
+      }
+
+      const numRating = Number(rating);
+      if (!Number.isInteger(numRating) || numRating < 1 || numRating > 5) {
+        res.status(HTTP_STATUS.BAD_REQUEST).json({
+          error: 'Rating must be an integer between 1 and 5.',
+        });
+        return;
+      }
+
+      if (feedback !== undefined && feedback !== null && (typeof feedback !== 'string' || feedback.length > 1000)) {
+        res.status(HTTP_STATUS.BAD_REQUEST).json({
+          error: 'Feedback must be a string up to 1,000 characters.',
+        });
+        return;
+      }
+
+      const result = await incidentService.submitCitizenFeedback(incidentId, userId, numRating, feedback);
+      if (result.status === 'not_found') {
+        res.status(HTTP_STATUS.NOT_FOUND).json({ error: ERROR_MESSAGES.NOT_FOUND });
+        return;
+      }
+      if (result.status === 'not_completed') {
+        res.status(HTTP_STATUS.BAD_REQUEST).json({
+          error: 'You can only rate an incident after it has been marked as completed.',
+        });
+        return;
+      }
+
+      res.status(HTTP_STATUS.OK).json({
+        success: true,
+        message: 'Feedback submitted successfully',
+        data: result.data,
+      });
+    } catch (error) {
+      console.error('Submit citizen feedback error:', error);
       res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
         error: ERROR_MESSAGES.INTERNAL_ERROR,
       });

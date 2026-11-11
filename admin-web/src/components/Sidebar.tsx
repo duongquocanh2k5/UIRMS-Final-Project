@@ -1,13 +1,14 @@
 import { BarChart3, FileText, LayoutDashboard, MapPin, Settings, Users } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useLanguage } from '../context/LanguageContext';
 import type { AdminRole } from '../services/api';
 
 const menuItems = [
-    { label: 'Tổng Quan', to: '/', icon: LayoutDashboard, end: true, roles: ['super_admin'] },
+    { label: 'Tổng Quan', to: '/', icon: LayoutDashboard, end: true, roles: ['super_admin', 'manager', 'technician'] },
     { label: 'Danh Sách Báo Cáo', to: '/incidents', icon: FileText, roles: ['super_admin', 'manager'] },
     { label: 'Sự Cố Được Giao', to: '/incidents', icon: FileText, roles: ['technician'] },
-    { label: 'Bản Đồ', to: '/map', icon: MapPin, roles: ['super_admin', 'manager'] },
+    { label: 'Bản Đồ', to: '/map', icon: MapPin, roles: ['super_admin', 'manager', 'technician'] },
     { label: 'Thống Kê', to: '/stats', icon: BarChart3, roles: ['super_admin', 'manager'] },
     { label: 'Nhân Viên', to: '/staff', icon: Users, roles: ['super_admin', 'manager'] },
     { label: 'Cài Đặt', to: '/settings', icon: Settings, roles: ['super_admin', 'manager', 'technician'] },
@@ -15,6 +16,7 @@ const menuItems = [
 
 export default function Sidebar() {
     const { user } = useAuth();
+    const { t } = useLanguage();
     const visibleItems = menuItems.filter(({ roles }) => roles.includes(user.role as AdminRole));
     const initials = user.name.split(' ').map((part) => part[0]).join('').slice(-2).toUpperCase();
 
@@ -25,7 +27,7 @@ export default function Sidebar() {
                 <div className="mt-1 text-xs font-medium tracking-wide text-slate-300">TP. Hồ Chí Minh</div>
             </div>
 
-            <nav className="mt-7 flex-1 space-y-1" aria-label="Điều hướng chính">
+            <nav className="mt-7 flex-1 space-y-1" aria-label={t('Điều hướng chính', 'Main navigation')}>
                 {visibleItems.map(({ label, to, icon: Icon, end }) => (
                     <NavLink
                         key={to}
@@ -34,7 +36,15 @@ export default function Sidebar() {
                         className={({ isActive }) => `flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium transition-colors ${isActive ? 'bg-primary/10 text-primary' : 'text-slate-300 hover:bg-white/5 hover:text-white'}`}
                     >
                         <Icon size={19} strokeWidth={1.9} />
-                        <span>{label}</span>
+                        <span>{t(label, ({
+                            'Tổng Quan': 'Overview',
+                            'Danh Sách Báo Cáo': 'Incident Reports',
+                            'Sự Cố Được Giao': 'Assigned Incidents',
+                            'Bản Đồ': 'Map',
+                            'Thống Kê': 'Statistics',
+                            'Nhân Viên': 'Staff',
+                            'Cài Đặt': 'Settings',
+                        } as Record<string, string>)[label] || label)}</span>
                     </NavLink>
                 ))}
             </nav>

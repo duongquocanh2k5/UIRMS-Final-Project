@@ -20,8 +20,8 @@ interface AuthContextValue {
 }
 
 const fallbackUser: AdminUser = {
-    name: 'Dương Quốc Anh',
-    role: 'Điều phối viên',
+    name: 'Chưa xác định',
+    role: '',
 };
 
 const ADMIN_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
@@ -33,14 +33,18 @@ function getStoredUser(): AdminUser {
     if (!storedUser) return fallbackUser;
 
     try {
-        return { ...fallbackUser, ...JSON.parse(storedUser) } as AdminUser;
+        const parsed = JSON.parse(storedUser) as Partial<AdminUser>;
+        if (typeof parsed.name !== 'string' || typeof parsed.role !== 'string') return fallbackUser;
+        return { ...parsed, name: parsed.name, role: parsed.role };
     } catch {
         return fallbackUser;
     }
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-    const [user, setUser] = useState<AdminUser>(getStoredUser);
+    const [user, setUser] = useState<AdminUser>(() =>
+        localStorage.getItem('adminToken') ? getStoredUser() : fallbackUser
+    );
     const [token, setToken] = useState<string | null>(() => localStorage.getItem('adminToken'));
 
     useEffect(() => {
@@ -49,15 +53,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             setUser(fallbackUser);
             setToken(null);
         };
+        const handleStorageChange = (event: StorageEvent) => {
+            if (event.key === 'adminToken') {
+                if (!event.newValue) {
+                    localStorage.removeItem('adminLastActivity');
+                    setUser(fallbackUser);
+                    setToken(null);
+                    return;
+                }
+                setToken(event.newValue);
+                setUser(getStoredUser());
+            } else if (event.key === 'adminUser') {
+                setUser(localStorage.getItem('adminToken') ? getStoredUser() : fallbackUser);
+            }
+        };
         window.addEventListener('admin:unauthorized', handleUnauthorized);
-        return () => window.removeEventListener('admin:unauthorized', handleUnauthorized);
+        window.addEventListener('storage', handleStorageChange);
+        return () => {
+            window.removeEventListener('admin:unauthorized', handleUnauthorized);
+            window.removeEventListener('storage', handleStorageChange);
+        };
     }, []);
 
     const login = async (email: string, password: string, role: AdminRole) => {
         const response = await adminApi.adminLogin(email, password, role);
         const nextUser = { id: response.data.user.id, email: response.data.user.email, username: response.data.user.username, name: response.data.user.full_name, role: response.data.user.role };
-        localStorage.setItem('adminToken', response.data.token);
         localStorage.setItem('adminUser', JSON.stringify(nextUser));
+        localStorage.setItem('adminToken', response.data.token);
         localStorage.setItem('adminLastActivity', String(Date.now()));
         setUser(nextUser);
         setToken(response.data.token);

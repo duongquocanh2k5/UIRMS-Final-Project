@@ -45,25 +45,25 @@ export class DepartmentsController {
     async update(req: Request, res: Response): Promise<void> {
         const departmentId = parseId(req.params.id as string);
         if (!departmentId) {
-            res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Mã đơn vị không hợp lệ' });
+            res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Invalid department ID.' });
             return;
         }
         const allowedFields = new Set(['name', 'area', 'lead_admin_id']);
         const body = req.body as Record<string, unknown>;
         if (Object.keys(body).length === 0 || Object.keys(body).some((field) => !allowedFields.has(field))) {
-            res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Chỉ được cập nhật name, area và lead_admin_id' });
+            res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Only name, area, and lead_admin_id can be updated.' });
             return;
         }
         if (body.name !== undefined && (typeof body.name !== 'string' || !body.name.trim())) {
-            res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Tên đơn vị không được để trống' });
+            res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Department name is required.' });
             return;
         }
         if (body.area !== undefined && body.area !== null && typeof body.area !== 'string') {
-            res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'area phải là chuỗi hoặc null' });
+            res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'area must be a string or null.' });
             return;
         }
         if (body.lead_admin_id !== undefined && body.lead_admin_id !== null && (!Number.isInteger(body.lead_admin_id) || Number(body.lead_admin_id) < 1)) {
-            res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'lead_admin_id phải là số nguyên dương hoặc null' });
+            res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'lead_admin_id must be a positive integer or null.' });
             return;
         }
 
@@ -83,7 +83,7 @@ export class DepartmentsController {
     async delete(req: Request, res: Response): Promise<void> {
         const departmentId = parseId(req.params.id as string);
         if (!departmentId) {
-            res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Mã đơn vị không hợp lệ' });
+            res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Invalid department ID.' });
             return;
         }
 
@@ -94,7 +94,7 @@ export class DepartmentsController {
                 return;
             }
             if (result.staffCount > 0) {
-                res.status(HTTP_STATUS.CONFLICT).json({ error: `Không thể xóa đơn vị đang có ${result.staffCount} nhân viên sử dụng` });
+                res.status(HTTP_STATUS.CONFLICT).json({ error: `This department cannot be deleted because it is assigned to ${result.staffCount} staff member(s).` });
                 return;
             }
             res.json({ success: true, data: { id: departmentId } });
@@ -107,11 +107,11 @@ export class DepartmentsController {
     private handleWriteError(error: unknown, res: Response): void {
         const code = (error as { code?: string }).code;
         if (code === '23505') {
-            res.status(HTTP_STATUS.CONFLICT).json({ error: 'Tên đơn vị đã tồn tại' });
+            res.status(HTTP_STATUS.CONFLICT).json({ error: 'A department with this name already exists.' });
             return;
         }
         if (code === '23503') {
-            res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Trưởng đơn vị không tồn tại' });
+            res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'The department lead does not exist.' });
             return;
         }
         res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({ error: ERROR_MESSAGES.INTERNAL_ERROR });

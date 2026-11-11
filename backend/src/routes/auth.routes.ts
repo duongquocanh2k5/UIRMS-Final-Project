@@ -56,6 +56,13 @@ router.post(
   (req, res) => authController.adminLogin(req, res)
 );
 
+// Send email verification OTP
+router.post(
+  '/send-verification-email',
+  authenticateToken,
+  (req, res) => authController.sendVerificationEmail(req, res)
+);
+
 // Verify email
 router.post(
   '/verify-email',
@@ -91,6 +98,18 @@ router.get(
   '/me',
   authenticateToken,
   (req, res) => authController.getCurrentUser(req, res)
+);
+
+router.put(
+  '/profile',
+  authenticateToken,
+  (req, res) => authController.updateProfile(req, res)
+);
+
+router.patch(
+  '/change-password',
+  authenticateToken,
+  (req, res) => authController.changePassword(req, res)
 );
 
 export default router;

@@ -9,45 +9,54 @@ import { Pool } from 'pg';
 import { env } from '../config/environment';
 import { logger } from '../utils/logger';
 
-const MIGRATIONS_DIR = path.join(__dirname, 'migrations');
+const DIST_MIGRATIONS_DIR = path.join(__dirname, 'migrations');
+const SRC_MIGRATIONS_DIR = path.resolve(__dirname, '../../src/database/migrations');
+const MIGRATIONS_DIR =
+  fs.existsSync(DIST_MIGRATIONS_DIR) && fs.readdirSync(DIST_MIGRATIONS_DIR).some((f) => f.endsWith('.sql'))
+    ? DIST_MIGRATIONS_DIR
+    : SRC_MIGRATIONS_DIR;
 const MIGRATIONS_TABLE = 'schema_migrations';
 
 /**
  * Create separate pool for migrations (to avoid conflicts)
  */
 function createMigrationPool(): Pool {
+  const useSsl =
+    process.env.DB_SSL === 'true' ||
+    env.nodeEnv === 'production' ||
+    env.databaseUrl.includes('supabase.co') ||
+    env.databaseUrl.includes('supabase.com');
   return new Pool({
     connectionString: env.databaseUrl,
     max: 1,
     idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 2000,
-    ssl: env.nodeEnv === 'production' ? { rejectUnauthorized: false } : false,
+    connectionTimeoutMillis: 10000,
+    ssl: useSsl ? { rejectUnauthorized: false } : false,
   });
 }
 
 /**
- * Execute SQL safely (Handle multi-statement SQL files)
+ * Execute a SQL file atomically, recording its migration name when provided.
  */
-async function executeSql(pool: Pool, sql: string): Promise<void> {
+async function executeSql(pool: Pool, sql: string, migrationName?: string): Promise<void> {
   const client = await pool.connect();
   try {
-    // Split by semicolon, but be careful with function definitions
-    const statements = sql
-      .split(';')
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0);
-
-    for (const statement of statements) {
-      if (statement.length > 0) {
-        try {
-          await client.query(statement + ';');
-        } catch (err: any) {
-          // Log more details to debug
-          logger.error(`Statement execution failed: ${statement.substring(0, 100)}...`, err);
-          throw err;
-        }
-      }
+    await client.query('BEGIN');
+    await client.query(sql);
+    if (migrationName) {
+      await client.query(
+        `INSERT INTO ${MIGRATIONS_TABLE} (name) VALUES ($1);`,
+        [migrationName]
+      );
     }
+    await client.query('COMMIT');
+  } catch (error) {
+    try {
+      await client.query('ROLLBACK');
+    } catch (rollbackError) {
+      logger.error('Failed to rollback migration transaction', rollbackError as Error);
+    }
+    throw error;
   } finally {
     client.release();
   }
@@ -83,22 +92,6 @@ async function getExecutedMigrations(pool: Pool): Promise<string[]> {
       `SELECT name FROM ${MIGRATIONS_TABLE} ORDER BY executed_at;`
     );
     return result.rows.map((row: any) => row.name);
-  } finally {
-    client.release();
-  }
-}
-
-/**
- * Record migration execution
- * FIX: Use parameterized query to prevent SQL injection via filenames
- */
-async function recordMigration(pool: Pool, name: string): Promise<void> {
-  const client = await pool.connect();
-  try {
-    await client.query(
-      `INSERT INTO ${MIGRATIONS_TABLE} (name) VALUES ($1);`,
-      [name]
-    );
   } finally {
     client.release();
   }
@@ -152,11 +145,7 @@ export async function runMigrations(): Promise<void> {
         const filePath = path.join(MIGRATIONS_DIR, file);
         const sql = fs.readFileSync(filePath, 'utf-8');
 
-        // Execute migration with proper statement handling
-        await executeSql(pool, sql);
-
-        // Record migration
-        await recordMigration(pool, file);
+        await executeSql(pool, sql, file);
 
         logger.info(`✓ Migration completed: ${file}`);
       } catch (error) {

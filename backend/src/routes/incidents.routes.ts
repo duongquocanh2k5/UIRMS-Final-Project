@@ -21,6 +21,8 @@ import { incidentImageUpload } from '../middlewares/incidentUpload';
 
 const router = Router();
 
+router.post('/ai-chat', authenticateToken, authorizeRole('user'), (req, res) => incidentController.chatWithAI(req, res));
+
 // Get statistics (before /:id to avoid route conflict)
 router.get('/stats/summary', authenticateOptionalToken, (req, res) => incidentController.getIncidentStats(req, res));
 
@@ -75,8 +77,16 @@ router.put(
 router.patch(
   '/:incidentId/complete',
   authenticateToken,
-  authorizeRole('user', AdminRole.SUPER_ADMIN, AdminRole.MANAGER),
+  authorizeRole(AdminRole.SUPER_ADMIN, AdminRole.MANAGER),
   (req, res) => incidentController.completeIncident(req, res)
+);
+
+// Submit citizen rating & feedback for completed incident
+router.post(
+  '/:incidentId/feedback',
+  authenticateToken,
+  authorizeRole('user'),
+  (req, res) => incidentController.submitCitizenFeedback(req, res)
 );
 
 // Delete incident (authenticated)

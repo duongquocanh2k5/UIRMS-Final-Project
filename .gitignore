@@ -3,6 +3,9 @@
 **/build/
 **/.expo/
 **/.env
+**/.env.*
+!**/.env.example
 **/.git_embedded_backup/
 backend/uploads/
 mobile-app/.tsupgrader/
+repomix-*.xml

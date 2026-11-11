@@ -7,6 +7,7 @@ import React, { useEffect } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import * as SplashScreen from 'expo-splash-screen';
 import { AuthProvider } from './src/context/AuthContext';
+import { LanguageProvider } from './src/context/LanguageContext';
 import { RootNavigator } from './src/navigation/RootNavigator';
 
 // Giữ màn hình chào không bị tắt tự động quá sớm
@@ -26,11 +27,13 @@ export default function App() {
   }, []);
 
   return (
-    <AuthProvider>
-      <NavigationContainer documentTitle={{ enabled: true, formatter: (options) => `UIRMS - ${options?.route?.name || 'Home'}` }}>
-        <RootNavigator />
-      </NavigationContainer>
-    </AuthProvider>
+    <LanguageProvider>
+      <AuthProvider>
+        <NavigationContainer documentTitle={{ enabled: true, formatter: (options) => `UIRMS - ${options?.route?.name || 'Home'}` }}>
+          <RootNavigator />
+        </NavigationContainer>
+      </AuthProvider>
+    </LanguageProvider>
   );
 
 }

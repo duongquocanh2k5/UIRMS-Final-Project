@@ -6,6 +6,7 @@ import StaffTable from '../components/StaffTable';
 import { useAuth } from '../context/AuthContext';
 import { useStaffDetail, useStaffList } from '../hooks/useStaffData';
 import { adminApi, type CreateStaffPayload, type UpdateStaffPayload } from '../services/api';
+import { useLanguage } from '../context/LanguageContext';
 
 const PAGE_SIZE = 10;
 
@@ -20,6 +21,7 @@ function KpiCard({ title, value, description, icon: Icon, tone }: {
 }
 
 export default function Staff() {
+    const { t } = useLanguage();
     const { user } = useAuth();
     const canCreateStaff = user.role === 'super_admin' || user.role === 'manager';
     const canCreateManagers = user.role === 'super_admin';
@@ -46,16 +48,16 @@ export default function Staff() {
     return (
         <div className="space-y-6">
             <div className="flex flex-wrap items-end justify-between gap-4">
-                <div><p className="text-sm font-medium text-neutral-500">Quản lý nhân sự tiếp nhận và xử lý sự cố</p><h1 className="mt-1 text-2xl font-bold text-neutral-900">Quản Lý Nhân Viên</h1></div>
-                {canCreateStaff && <button type="button" onClick={() => setAddModalOpen(true)} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-primary/90"><UserRoundPlus size={17} />Thêm Nhân Viên</button>}
+                <div><p className="text-sm font-medium text-neutral-500">{t('Quản lý nhân sự tiếp nhận và xử lý sự cố', 'Manage incident intake and response staff')}</p><h1 className="mt-1 text-2xl font-bold text-neutral-900">{t('Quản Lý Nhân Viên', 'Staff Management')}</h1></div>
+                {canCreateStaff && <button type="button" onClick={() => setAddModalOpen(true)} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-primary/90"><UserRoundPlus size={17} />{t('Thêm Nhân Viên', 'Add Staff')}</button>}
             </div>
 
-            {summaryError && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-danger">Không thể tải KPI nhân viên: {summaryError}</div>}
+            {summaryError && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-danger">{t('Không thể tải KPI nhân viên:', 'Could not load staff metrics:')} {summaryError}</div>}
             <section className="grid gap-4 md:grid-cols-3">
                 {summary ? <>
-                    <KpiCard title="Tổng Nhân Viên" value={summary.totalStaff.toLocaleString('vi-VN')} description="Kỹ thuật viên trong hệ thống" icon={Users} tone="bg-blue-50 text-info" />
-                    <KpiCard title="Đang Hoạt Động" value={summary.activeStaff.toLocaleString('vi-VN')} description="Kỹ thuật viên đang làm việc" icon={Activity} tone="bg-green-50 text-success" />
-                    <KpiCard title="Đội Nhiều Việc Nhất" value={summary.busiestDepartment.name} description={`${summary.busiestDepartment.activeCount.toLocaleString('vi-VN')} sự cố đang xử lý`} icon={BriefcaseBusiness} tone="bg-orange-50 text-warning" />
+                    <KpiCard title={t('Tổng Nhân Viên', 'Total Staff')} value={summary.totalStaff.toLocaleString('vi-VN')} description={t('Kỹ thuật viên trong hệ thống', 'Technicians in the system')} icon={Users} tone="bg-blue-50 text-info" />
+                    <KpiCard title={t('Đang Hoạt Động', 'Active')} value={summary.activeStaff.toLocaleString('vi-VN')} description={t('Kỹ thuật viên đang làm việc', 'Technicians currently working')} icon={Activity} tone="bg-green-50 text-success" />
+                    <KpiCard title={t('Đội Nhiều Việc Nhất', 'Busiest Team')} value={summary.busiestDepartment.name} description={`${summary.busiestDepartment.activeCount.toLocaleString('vi-VN')} ${t('sự cố đang xử lý', 'incidents in progress')}`} icon={BriefcaseBusiness} tone="bg-orange-50 text-warning" />
                 </> : <>{[0, 1, 2].map((item) => <div key={item} className="h-24 animate-pulse rounded-xl border border-slate-200 bg-white" />)}</>}
             </section>
 

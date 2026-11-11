@@ -24,14 +24,9 @@ interface LoginAttempt {
 const userLoginAttempts = new Map<string, LoginAttempt>();
 const adminLoginAttempts = new Map<string, LoginAttempt>();
 
-/**
- * Clean up expired entries and check/update rate limit
- * Returns null if allowed, or { retryAfterSeconds } if blocked
- */
-function checkRateLimit(
+function isRateLimited(
   attemptsMap: Map<string, LoginAttempt>,
-  key: string,
-  loginSucceeded: boolean
+  key: string
 ): { blocked: true; retryAfterSeconds: number } | { blocked: false } {
   const now = Date.now();
 
@@ -50,12 +45,21 @@ function checkRateLimit(
     return { blocked: true, retryAfterSeconds };
   }
 
-  if (loginSucceeded) {
+  return { blocked: false };
+}
+
+function recordLoginAttempt(
+  attemptsMap: Map<string, LoginAttempt>,
+  key: string,
+  succeeded: boolean
+): { blocked: true; retryAfterSeconds: number } | { blocked: false } {
+  if (succeeded) {
     attemptsMap.delete(key);
     return { blocked: false };
   }
 
-  // Record failed attempt
+  const now = Date.now();
+  const currentAttempt = attemptsMap.get(key);
   const attempt = currentAttempt && now - currentAttempt.windowStartedAt < LOGIN_WINDOW_MS
     ? currentAttempt
     : { attempts: 0, windowStartedAt: now };
@@ -180,32 +184,23 @@ export class AuthController {
       const identifier = String(emailOrPhone).trim().toLowerCase();
 
       // Check if rate-limited BEFORE attempting login
-      const preCheck = checkRateLimit(userLoginAttempts, identifier, false);
-      // Undo the failed attempt count if we haven't actually tried yet
-      // We'll properly count after the login attempt
+      const preCheck = isRateLimited(userLoginAttempts, identifier);
       if (preCheck.blocked) {
         res.set('Retry-After', String(preCheck.retryAfterSeconds));
         res.status(429).json({
-          error: 'Tài khoản tạm khóa do đăng nhập sai quá nhiều lần. Vui lòng thử lại sau.',
+          error: 'Your account is temporarily locked due to too many failed login attempts. Please try again later.',
         });
         return;
-      }
-      // Undo the premature increment — we check rate limit properly after login
-      const entry = userLoginAttempts.get(identifier);
-      if (entry) {
-        entry.attempts -= 1;
-        if (entry.attempts <= 0) userLoginAttempts.delete(identifier);
       }
 
       const result = await authService.loginUser(emailOrPhone, password);
 
       if (!result) {
-        // Record failed attempt
-        const rateResult = checkRateLimit(userLoginAttempts, identifier, false);
+        const rateResult = recordLoginAttempt(userLoginAttempts, identifier, false);
         if (rateResult.blocked) {
           res.set('Retry-After', String(rateResult.retryAfterSeconds));
           res.status(429).json({
-            error: 'Tài khoản tạm khóa do đăng nhập sai quá nhiều lần. Vui lòng thử lại sau.',
+            error: 'Your account is temporarily locked due to too many failed login attempts. Please try again later.',
           });
           return;
         }
@@ -216,7 +211,7 @@ export class AuthController {
       }
 
       // Clear rate limit on success
-      checkRateLimit(userLoginAttempts, identifier, true);
+      recordLoginAttempt(userLoginAttempts, identifier, true);
 
       // FIX: result.user already has password_hash stripped by service layer
       res.json({
@@ -229,6 +224,7 @@ export class AuthController {
             email: result.user.email,
             phone: result.user.phone,
             full_name: result.user.full_name,
+            is_verified: result.user.is_verified,
           },
         },
       });
@@ -244,39 +240,33 @@ export class AuthController {
     try {
       const { emailOrUsername, password, role } = req.body;
       if (!emailOrUsername || !password || !role) {
-        res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Email/username, mật khẩu và vai trò là bắt buộc' });
+        res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Email/username, password, and role are required.' });
         return;
       }
 
       const identifier = String(emailOrUsername).trim().toLowerCase();
 
       // Check if rate-limited BEFORE attempting login
-      const preCheck = checkRateLimit(adminLoginAttempts, identifier, false);
+      const preCheck = isRateLimited(adminLoginAttempts, identifier);
       if (preCheck.blocked) {
         res.set('Retry-After', String(preCheck.retryAfterSeconds));
-        res.status(429).json({ error: 'Tài khoản tạm khóa do đăng nhập sai quá nhiều lần. Vui lòng thử lại sau 10 phút.' });
+        res.status(429).json({ error: 'Your account is temporarily locked due to too many failed login attempts. Please try again in 10 minutes.' });
         return;
-      }
-      // Undo premature increment
-      const entry = adminLoginAttempts.get(identifier);
-      if (entry) {
-        entry.attempts -= 1;
-        if (entry.attempts <= 0) adminLoginAttempts.delete(identifier);
       }
 
       const result = await authService.loginAdmin(emailOrUsername, password, role);
       if (!result) {
-        const rateResult = checkRateLimit(adminLoginAttempts, identifier, false);
+        const rateResult = recordLoginAttempt(adminLoginAttempts, identifier, false);
         if (rateResult.blocked) {
           res.set('Retry-After', String(rateResult.retryAfterSeconds));
-          res.status(429).json({ error: 'Tài khoản tạm khóa do đăng nhập sai quá nhiều lần. Vui lòng thử lại sau 10 phút.' });
+          res.status(429).json({ error: 'Your account is temporarily locked due to too many failed login attempts. Please try again in 10 minutes.' });
           return;
         }
-        res.status(HTTP_STATUS.UNAUTHORIZED).json({ error: 'Thông tin đăng nhập admin không hợp lệ' });
+        res.status(HTTP_STATUS.UNAUTHORIZED).json({ error: 'Invalid administrator credentials.' });
         return;
       }
 
-      checkRateLimit(adminLoginAttempts, identifier, true);
+      recordLoginAttempt(adminLoginAttempts, identifier, true);
 
       // FIX: result.admin already has password_hash stripped by service layer
       res.json({
@@ -296,6 +286,55 @@ export class AuthController {
     } catch (error) {
       console.error('Admin login error:', error);
       res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({ error: ERROR_MESSAGES.INTERNAL_ERROR });
+    }
+  }
+
+  /**
+   * Send email verification OTP
+   * POST /auth/send-verification-email
+   */
+  async sendVerificationEmail(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        res.status(HTTP_STATUS.UNAUTHORIZED).json({
+          error: ERROR_MESSAGES.UNAUTHORIZED,
+        });
+        return;
+      }
+
+      const result = await authService.sendEmailVerificationOTP(userId);
+      if (result === 'not_found') {
+        res.status(HTTP_STATUS.NOT_FOUND).json({
+          error: ERROR_MESSAGES.NOT_FOUND,
+        });
+        return;
+      }
+
+      if (result === 'already_verified') {
+        res.status(HTTP_STATUS.OK).json({
+          success: true,
+          message: 'Email is already verified',
+        });
+        return;
+      }
+
+      if (result === 'delivery_failed') {
+        res.status(HTTP_STATUS.SERVICE_UNAVAILABLE).json({
+          error: 'Unable to send verification email. Check server email configuration.',
+        });
+        return;
+      }
+
+      res.status(HTTP_STATUS.OK).json({
+        success: true,
+        message: 'Verification code sent to your email address',
+      });
+    } catch (error) {
+      console.error('Send verification email error:', error);
+      res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+        error: ERROR_MESSAGES.INTERNAL_ERROR,
+      });
     }
   }
 
@@ -351,11 +390,18 @@ export class AuthController {
         return;
       }
 
-      await authService.sendPasswordResetOTP(email);
+      const deliveryResult = await authService.sendPasswordResetOTP(email);
+
+      if (deliveryResult === 'delivery_failed') {
+        res.status(HTTP_STATUS.SERVICE_UNAVAILABLE).json({
+          error: 'Unable to send the password reset email. Check the server email configuration or contact an administrator.',
+        });
+        return;
+      }
 
       res.status(HTTP_STATUS.OK).json({
         success: true,
-        message: 'Password reset code sent to your email',
+        message: 'If this email address is registered, a password reset code will be sent to your inbox.',
       });
     } catch (error) {
       res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
@@ -400,6 +446,140 @@ export class AuthController {
         message: 'Password reset successfully',
       });
     } catch (error) {
+      res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+        error: ERROR_MESSAGES.INTERNAL_ERROR,
+      });
+    }
+  }
+
+  /**
+   * Update current user profile
+   * PUT /auth/profile
+   */
+  async updateProfile(req: AuthRequest, res: Response): Promise<void> {
+    const userId = req.user?.id;
+    if (!userId) {
+      res.status(HTTP_STATUS.UNAUTHORIZED).json({
+        error: ERROR_MESSAGES.UNAUTHORIZED,
+      });
+      return;
+    }
+
+    const { full_name, phone, bio } = req.body;
+    if (full_name !== undefined && (typeof full_name !== 'string' || full_name.trim().length < 2)) {
+      res.status(HTTP_STATUS.BAD_REQUEST).json({
+        error: 'Full name must be at least 2 characters',
+      });
+      return;
+    }
+
+    if (phone !== undefined && (typeof phone !== 'string' || !isValidPhoneNumber(phone))) {
+      res.status(HTTP_STATUS.BAD_REQUEST).json({
+        error: 'Invalid phone number format (Vietnamese only)',
+      });
+      return;
+    }
+
+    if (bio !== undefined && typeof bio !== 'string') {
+      res.status(HTTP_STATUS.BAD_REQUEST).json({
+        error: 'Bio must be a string',
+      });
+      return;
+    }
+
+    try {
+      const user = await authService.updateUserProfile(userId, {
+        ...(full_name !== undefined ? { full_name: full_name.trim() } : {}),
+        ...(phone !== undefined ? { phone } : {}),
+        ...(bio !== undefined ? { bio } : {}),
+      });
+
+      if (!user) {
+        res.status(HTTP_STATUS.NOT_FOUND).json({
+          error: ERROR_MESSAGES.NOT_FOUND,
+        });
+        return;
+      }
+
+      res.status(HTTP_STATUS.OK).json({
+        success: true,
+        message: 'Profile updated successfully',
+        data: {
+          id: user.id,
+          email: user.email,
+          phone: user.phone,
+          full_name: user.full_name,
+          is_verified: user.is_verified,
+          avatar_url: user.avatar_url,
+          bio: user.bio,
+          created_at: user.created_at,
+        },
+      });
+    } catch (error) {
+      if ((error as { code?: string }).code === '23505') {
+        res.status(HTTP_STATUS.CONFLICT).json({
+          error: 'Phone number is already in use',
+        });
+        return;
+      }
+
+      console.error('Update profile error:', error);
+      res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+        error: ERROR_MESSAGES.INTERNAL_ERROR,
+      });
+    }
+  }
+
+  /**
+   * Change current user password
+   * PATCH /auth/change-password
+   */
+  async changePassword(req: AuthRequest, res: Response): Promise<void> {
+    const userId = req.user?.id;
+    if (!userId) {
+      res.status(HTTP_STATUS.UNAUTHORIZED).json({
+        error: ERROR_MESSAGES.UNAUTHORIZED,
+      });
+      return;
+    }
+
+    const { currentPassword, newPassword } = req.body;
+    if (typeof currentPassword !== 'string' || !currentPassword || typeof newPassword !== 'string') {
+      res.status(HTTP_STATUS.BAD_REQUEST).json({
+        error: 'Current password and new password are required',
+      });
+      return;
+    }
+
+    if (!isValidPassword(newPassword)) {
+      res.status(HTTP_STATUS.BAD_REQUEST).json({
+        error: 'New password does not meet requirements',
+      });
+      return;
+    }
+
+    try {
+      const result = await authService.changeUserPassword(userId, currentPassword, newPassword);
+      if (result === 'not_found') {
+        res.status(HTTP_STATUS.NOT_FOUND).json({
+          error: ERROR_MESSAGES.NOT_FOUND,
+        });
+        return;
+      }
+
+      if (result === 'invalid_password') {
+        res.status(HTTP_STATUS.BAD_REQUEST).json({
+          error: 'Current password is incorrect',
+        });
+        return;
+      }
+
+      res.status(HTTP_STATUS.OK).json({
+        success: true,
+        message: 'Password changed successfully',
+      });
+    } catch (error) {
+      console.error('Change password error:', error);
       res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
         error: ERROR_MESSAGES.INTERNAL_ERROR,
       });

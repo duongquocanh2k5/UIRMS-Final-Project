@@ -4,13 +4,14 @@
  */
 
 import React from 'react';
-// Bỏ NavigationContainer ở đây để App.tsx bọc ngoài là chuẩn nhất
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { ActivityIndicator, View, Text } from 'react-native'; // 🛠️ SỬA LỖI 1: Đã thêm Text vào đây
+import { ActivityIndicator, View, Text } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useAuth } from '../context/AuthContext';
+import { useLanguage } from '../context/LanguageContext';
 import LoginScreen from '@/screens/LoginScreen';
 import RegisterScreen from '@/screens/RegisterScreen';
 import ForgotPasswordScreen from '@/screens/ForgotPasswordScreen';
@@ -20,8 +21,8 @@ import MyIncidentsScreen from '@/screens/MyIncidentsScreen';
 import IncidentDetailScreen from '@/screens/IncidentDetailScreen';
 import NotificationsScreen from '@/screens/NotificationsScreen';
 import ProfileScreen from '@/screens/ProfileScreen';
+import AIChatScreen from '@/screens/AIChatScreen';
 
-// Tạo một Stack tổng để quản lý luồng Auth và App gọn gàng theo chuẩn v7
 const RootStack = createNativeStackNavigator();
 const AuthStackNavigator = createNativeStackNavigator();
 const HomeStackNavigator = createNativeStackNavigator();
@@ -29,21 +30,21 @@ const MyIncidentsStackNavigator = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 
 const AuthStack = () => (
-  <AuthStackNavigator.Navigator
-    initialRouteName="Login"
-    screenOptions={{ headerShown: false }}
-  >
+  <AuthStackNavigator.Navigator initialRouteName="Login" screenOptions={{ headerShown: false }}>
     <AuthStackNavigator.Screen name="Login" component={LoginScreen} />
     <AuthStackNavigator.Screen name="Register" component={RegisterScreen} />
     <AuthStackNavigator.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
   </AuthStackNavigator.Navigator>
 );
 
-const HomeStack = () => (
-  <HomeStackNavigator.Navigator
+const HomeStack = () => {
+  const { t } = useLanguage();
+  return <HomeStackNavigator.Navigator
     screenOptions={{
       headerShown: true,
-      headerBackTitle: 'Quay lại',
+      headerBackTitle: t('Quay lại', 'Back'),
+      headerTintColor: '#142532',
+      headerTitleStyle: { fontWeight: '700' },
     }}
   >
     <HomeStackNavigator.Screen
@@ -52,23 +53,31 @@ const HomeStack = () => (
       options={{ headerShown: false }}
     />
     <HomeStackNavigator.Screen
+      name="AIChat"
+      component={AIChatScreen}
+      options={{ title: t('Trợ lý AI Đô thị', 'Urban AI Assistant') }}
+    />
+    <HomeStackNavigator.Screen
       name="ReportIncident"
       component={ReportIncidentScreen}
-      options={{ title: 'Báo cáo sự cố' }}
+      options={{ title: t('Báo cáo sự cố', 'Report an Incident') }}
     />
     <HomeStackNavigator.Screen
       name="IncidentDetail"
       component={IncidentDetailScreen}
-      options={{ title: 'Chi tiết sự cố' }}
+      options={{ title: t('Chi tiết sự cố', 'Incident Details') }}
     />
-  </HomeStackNavigator.Navigator>
-);
+  </HomeStackNavigator.Navigator>;
+};
 
-const MyIncidentsStack = () => (
-  <MyIncidentsStackNavigator.Navigator
+const MyIncidentsStack = () => {
+  const { t } = useLanguage();
+  return <MyIncidentsStackNavigator.Navigator
     screenOptions={{
       headerShown: true,
-      headerBackTitle: 'Quay lại',
+      headerBackTitle: t('Quay lại', 'Back'),
+      headerTintColor: '#142532',
+      headerTitleStyle: { fontWeight: '700' },
     }}
   >
     <MyIncidentsStackNavigator.Screen
@@ -79,72 +88,97 @@ const MyIncidentsStack = () => (
     <MyIncidentsStackNavigator.Screen
       name="IncidentDetail"
       component={IncidentDetailScreen}
-      options={{ title: 'Chi tiết sự cố' }}
+      options={{ title: t('Chi tiết sự cố', 'Incident Details') }}
     />
-  </MyIncidentsStackNavigator.Navigator>
-);
+  </MyIncidentsStackNavigator.Navigator>;
+};
 
-const AppTabs = () => (
-  <Tab.Navigator
-    screenOptions={({ route }) => ({
-      headerShown: false,
-      tabBarActiveTintColor: '#0A9D96',
-      tabBarInactiveTintColor: '#9AA8B6',
-      tabBarLabelStyle: { fontSize: 12 },
-      tabBarIcon: ({ focused, color, size }) => {
-        const icons = {
-          Home: focused ? 'home' : 'home-outline',
-          MyIncidents: focused ? 'document-text' : 'document-text-outline',
-          Notifications: focused ? 'notifications' : 'notifications-outline',
-          Profile: focused ? 'person' : 'person-outline',
-        } as const;
+const AppTabs = () => {
+  const insets = useSafeAreaInsets();
+  const { t } = useLanguage();
+  const bottomPadding = Math.max(insets.bottom, 10);
 
-        return <Ionicons name={icons[route.name as keyof typeof icons]} size={size} color={color} />;
-      },
-      tabBarStyle: {
-        borderTopWidth: 1,
-        borderTopColor: '#eee',
-        height: 60,
-        paddingBottom: 8,
-      },
-    })}
-  >
-    <Tab.Screen
-      name="Home"
-      component={HomeStack}
-      options={{ title: 'Trang chủ', tabBarLabel: 'Trang chủ' }}
-    />
-    <Tab.Screen
-      name="MyIncidents"
-      component={MyIncidentsStack}
-      options={{ title: 'Báo cáo của tôi', tabBarLabel: 'Báo cáo' }}
-    />
-    <Tab.Screen
-      name="Notifications"
-      component={NotificationsScreen}
-      options={{ title: 'Thông báo', tabBarLabel: 'Thông báo' }}
-    />
-    <Tab.Screen
-      name="Profile"
-      component={ProfileScreen}
-      options={{ title: 'Hồ sơ', tabBarLabel: 'Hồ sơ' }}
-    />
-  </Tab.Navigator>
-);
+  return (
+    <Tab.Navigator
+      screenOptions={({ route }) => ({
+        headerShown: false,
+        tabBarHideOnKeyboard: true,
+        tabBarActiveTintColor: '#0A9D96',
+        tabBarInactiveTintColor: '#8B9AA6',
+        tabBarLabelStyle: { fontSize: 11, fontWeight: '600', marginTop: 2 },
+        tabBarIcon: ({ focused, color, size }) => {
+          const icons = {
+            Home: focused ? 'home' : 'home-outline',
+            MyIncidents: focused ? 'document-text' : 'document-text-outline',
+            Notifications: focused ? 'notifications' : 'notifications-outline',
+            Profile: focused ? 'person' : 'person-outline',
+          } as const;
+
+          return (
+            <Ionicons
+              name={icons[route.name as keyof typeof icons]}
+              size={size}
+              color={color}
+            />
+          );
+        },
+        tabBarStyle: {
+          backgroundColor: '#FFFFFF',
+          borderTopWidth: 1,
+          borderTopColor: '#E5EDF1',
+          height: 58 + bottomPadding,
+          paddingBottom: bottomPadding,
+          paddingTop: 6,
+          elevation: 8,
+        },
+      })}
+    >
+      <Tab.Screen
+        name="Home"
+        component={HomeStack}
+        options={{ title: t('Trang chủ', 'Home'), tabBarLabel: t('Trang chủ', 'Home') }}
+      />
+      <Tab.Screen
+        name="MyIncidents"
+        component={MyIncidentsStack}
+        options={{ title: t('Báo cáo của tôi', 'My Reports'), tabBarLabel: t('Báo cáo', 'Reports') }}
+      />
+      <Tab.Screen
+        name="Notifications"
+        component={NotificationsScreen}
+        options={{ title: t('Thông báo', 'Notifications'), tabBarLabel: t('Thông báo', 'Notifications') }}
+      />
+      <Tab.Screen
+        name="Profile"
+        component={ProfileScreen}
+        options={{ title: t('Hồ sơ', 'Profile'), tabBarLabel: t('Hồ sơ', 'Profile') }}
+      />
+    </Tab.Navigator>
+  );
+};
 
 export const RootNavigator = () => {
   const { isSignedIn, isLoading } = useAuth();
+  const { t } = useLanguage();
 
   if (isLoading) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#f0f0f0' }}>
-        <ActivityIndicator size="large" color="#0000ff" />
-        <Text style={{ marginTop: 10, color: '#333' }}>Đang tải cấu hình hệ thống...</Text>
+      <View
+        style={{
+          flex: 1,
+          justifyContent: 'center',
+          alignItems: 'center',
+          backgroundColor: '#F5F8FA',
+        }}
+      >
+        <ActivityIndicator size="large" color="#0A9D96" />
+        <Text style={{ marginTop: 10, color: '#334155', fontWeight: '600' }}>
+          {t('Đang tải cấu hình hệ thống...', 'Loading your account...')}
+        </Text>
       </View>
     );
   }
 
-  // 🛠️ SỬA LỖI 2: Chỉ cần return trực tiếp luồng Navigator, việc bọc Container hãy để App.tsx lo
   return (
     <RootStack.Navigator screenOptions={{ headerShown: false }}>
       {isSignedIn ? (

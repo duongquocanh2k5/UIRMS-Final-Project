@@ -4,6 +4,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useAuth } from '../context/AuthContext';
+import { useLanguage } from '../context/LanguageContext';
+import LanguageToggle from '../components/LanguageToggle';
 
 type AuthStackParamList = {
   Login: undefined;
@@ -14,26 +16,16 @@ type AuthStackParamList = {
 export default function LoginScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<AuthStackParamList, 'Login'>>();
   const { login } = useAuth();
+  const { t, language } = useLanguage();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-
-  const DEMO_EMAIL = 'demo@uirms.com';
-  const DEMO_PASSWORD = 'Demo123!';
 
   const handleLogin = async () => {
     try {
       await login(email, password);
     } catch (err: any) {
-      Alert.alert('Lỗi đăng nhập', err.message || 'Có lỗi xảy ra');
-    }
-  };
-
-  const handleQuickLogin = async () => {
-    try {
-      await login(DEMO_EMAIL, DEMO_PASSWORD);
-    } catch (err: any) {
-      Alert.alert('Lỗi đăng nhập nhanh', err.message || 'Có lỗi xảy ra');
+      Alert.alert(t('Lỗi đăng nhập', 'Login failed'), err.message || t('Có lỗi xảy ra', 'Something went wrong'));
     }
   };
 
@@ -57,13 +49,14 @@ export default function LoginScreen() {
 
   useEffect(() => {
     if (typeof document !== 'undefined') {
-      document.title = 'UIRMS - ĐĂNG NHẬP';
+      document.title = t('UIRMS - ĐĂNG NHẬP', 'UIRMS - LOG IN');
     }
-  }, []);
+  }, [language, t]);
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>UIRMS - ĐĂNG NHẬP</Text>
+      <View style={styles.languageButton}><LanguageToggle /></View>
+      <Text style={styles.title}>{t('UIRMS - ĐĂNG NHẬP', 'UIRMS - LOG IN')}</Text>
       <TextInput
         style={styles.input}
         placeholder="Email"
@@ -75,7 +68,7 @@ export default function LoginScreen() {
       <View style={styles.passwordInputWrapper}>
         <TextInput
           style={[styles.input, styles.passwordInput]}
-          placeholder="Mật khẩu"
+          placeholder={t('Mật khẩu', 'Password')}
           value={password}
           onChangeText={setPassword}
           secureTextEntry={!showPassword}
@@ -84,7 +77,7 @@ export default function LoginScreen() {
           style={styles.eyeButton}
           onPress={() => setShowPassword((visible) => !visible)}
           accessibilityRole="button"
-          accessibilityLabel={showPassword ? 'Ẩn mật khẩu' : 'Hiển thị mật khẩu'}
+          accessibilityLabel={showPassword ? t('Ẩn mật khẩu', 'Hide password') : t('Hiển thị mật khẩu', 'Show password')}
         >
           <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={22} color="#64748b" />
         </TouchableOpacity>
@@ -97,17 +90,13 @@ export default function LoginScreen() {
           if (parent && typeof parent.navigate === 'function') parent.navigate('ForgotPassword');
         }
       }}>
-        <Text style={styles.forgotText}>Quên mật khẩu?</Text>
+        <Text style={styles.forgotText}>{t('Quên mật khẩu?', 'Forgot password?')}</Text>
       </TouchableOpacity>
       <View style={styles.buttonWrapper}>
-        <Button title="Đăng nhập" onPress={handleLogin} />
+        <Button title={t('Đăng nhập', 'Log in')} onPress={handleLogin} />
       </View>
       <TouchableOpacity style={styles.registerButton} onPress={handleRegister}>
-        <Text style={styles.registerButtonText}>Đăng ký</Text>
-      </TouchableOpacity>
-      <Text style={styles.demoInfo}>Tài khoản demo: demo@uirms.com / Demo123!</Text>
-      <TouchableOpacity style={styles.demoButton} onPress={handleQuickLogin}>
-        <Text style={styles.demoButtonText}>Đăng nhập nhanh</Text>
+        <Text style={styles.registerButtonText}>{t('Đăng ký', 'Create account')}</Text>
       </TouchableOpacity>
     </View>
   );
@@ -122,6 +111,7 @@ const styles = StyleSheet.create({
     paddingBottom: 24,
     backgroundColor: '#f8fafc',
   },
+  languageButton: { position: 'absolute', top: 42, right: 24, zIndex: 1 },
   title: {
     fontSize: 24,
     fontWeight: 'bold',
@@ -163,25 +153,6 @@ const styles = StyleSheet.create({
   },
   registerButtonText: {
     color: '#2563eb',
-    fontWeight: '700',
-    fontSize: 16,
-  },
-  demoInfo: {
-    marginTop: 16,
-    textAlign: 'center',
-    color: '#4b5563',
-    fontSize: 14,
-  },
-  demoButton: {
-    marginTop: 12,
-    alignSelf: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    backgroundColor: '#2563eb',
-    borderRadius: 8,
-  },
-  demoButtonText: {
-    color: '#fff',
     fontWeight: '700',
     fontSize: 16,
   },

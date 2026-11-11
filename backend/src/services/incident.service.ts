@@ -12,6 +12,7 @@ import {
 } from '../types/index';
 import { query, queryOne } from '../config/database';
 import { calculateOffset } from '../utils/helpers';
+import { aiService, AIAnalysisResult } from './ai.service';
 
 export class IncidentService {
   /**
@@ -21,9 +22,41 @@ export class IncidentService {
     const { category_id, title, description, location_name, district, latitude, longitude, priority } = input;
 
     const result = await query<Incident>(
-      `INSERT INTO incidents (user_id, category_id, title, description, location_name, district, location_point, priority)
-       VALUES ($1, $2, $3, $4, $5, $6, ST_SetSRID(ST_Point($7, $8), 4326), COALESCE($9, 'medium'))
-       RETURNING *;`,
+      `WITH new_incident AS (
+         INSERT INTO incidents (user_id, category_id, title, description, location_name, district, location_point, priority)
+         VALUES ($1, $2, $3, $4, $5, $6, ST_SetSRID(ST_Point($7, $8), 4326), COALESCE($9, 'medium'))
+         RETURNING *
+       ),
+       duplicate_candidate AS (
+         SELECT existing.id
+         FROM incidents existing
+         CROSS JOIN new_incident created
+         WHERE existing.id <> created.id
+           AND existing.deleted_at IS NULL
+           AND existing.category_id = created.category_id
+           AND existing.status NOT IN ('completed', 'rejected')
+           AND ST_DWithin(
+             existing.location_point::GEOGRAPHY,
+             ST_SetSRID(ST_MakePoint($7, $8), 4326)::GEOGRAPHY,
+             50
+           )
+         ORDER BY existing.created_at ASC
+         LIMIT 1
+       ),
+       updated_incident AS (
+         UPDATE incidents
+         SET is_duplicate = TRUE,
+             duplicate_of = duplicate_candidate.id,
+             updated_at = NOW()
+         FROM duplicate_candidate
+         WHERE incidents.id = (SELECT id FROM new_incident)
+         RETURNING incidents.*
+       )
+       SELECT * FROM updated_incident
+       UNION ALL
+       SELECT * FROM new_incident
+       WHERE NOT EXISTS (SELECT 1 FROM duplicate_candidate)
+       LIMIT 1;`,
       [userId, category_id, title, description, location_name, district ?? null, longitude, latitude, priority]
     );
 
@@ -37,24 +70,203 @@ export class IncidentService {
     const assignmentScope = assignedTo === undefined
       ? ''
       : 'AND (assigned_to = $2 OR assigned_technician = $2)';
-    return queryOne<Incident>(
+    const row = await queryOne<any>(
       `SELECT incidents.*,
+              categories.name AS category_name,
+              ROUND(ST_Y(incidents.location_point)::numeric, 6) AS latitude,
+              ROUND(ST_X(incidents.location_point)::numeric, 6) AS longitude,
+              (
+                SELECT ic.comment
+                FROM incident_comments ic
+                WHERE ic.incident_id = incidents.id AND ic.deleted_at IS NULL
+                ORDER BY ic.updated_at DESC, ic.id DESC
+                LIMIT 1
+              ) AS latest_citizen_comment,
+              (
+                SELECT COALESCE(ic.updated_at, ic.created_at)
+                FROM incident_comments ic
+                WHERE ic.incident_id = incidents.id AND ic.deleted_at IS NULL
+                ORDER BY ic.updated_at DESC, ic.id DESC
+                LIMIT 1
+              ) AS citizen_feedback_at,
+              COALESCE((SELECT json_agg(json_build_object(
+                          'id', id,
+                          'image_url', image_url,
+                          'is_before', is_before,
+                          'created_at', created_at
+                        ) ORDER BY created_at)
+                        FROM incident_images WHERE incident_id = incidents.id), '[]') AS images,
               COALESCE((SELECT json_agg(image_url ORDER BY created_at)
                         FROM incident_images WHERE incident_id = incidents.id), '[]') AS image_urls
-       FROM incidents WHERE id = $1 AND deleted_at IS NULL ${assignmentScope};`,
+       FROM incidents
+       LEFT JOIN categories ON categories.id = incidents.category_id
+       WHERE incidents.id = $1 AND incidents.deleted_at IS NULL ${assignmentScope};`,
       assignedTo === undefined ? [incidentId] : [incidentId, assignedTo]
     );
+    if (!row) return null;
+
+    if (row.latest_citizen_comment) {
+      const trimmed = String(row.latest_citizen_comment).trim();
+      if (trimmed.startsWith('{')) {
+        try {
+          const parsed = JSON.parse(trimmed);
+          const rating = Number(parsed?.rating);
+          row.citizen_rating = Number.isInteger(rating) && rating >= 1 && rating <= 5 ? rating : null;
+          row.citizen_feedback = typeof parsed?.feedback === 'string' && parsed.feedback.trim() ? parsed.feedback.trim() : null;
+        } catch {
+          row.citizen_rating = null;
+          row.citizen_feedback = trimmed;
+        }
+      } else {
+        row.citizen_rating = null;
+        row.citizen_feedback = trimmed;
+      }
+    } else {
+      row.citizen_rating = null;
+      row.citizen_feedback = null;
+    }
+    delete row.latest_citizen_comment;
+
+    return row;
   }
 
-  async addIncidentImage(incidentId: number, userId: number, imageUrl: string): Promise<boolean> {
-    const result = await query(
+  /**
+   * Submit or update citizen rating & feedback for a completed incident
+   */
+  async submitCitizenFeedback(
+    incidentId: number,
+    userId: number,
+    rating: number,
+    feedback?: string
+  ): Promise<
+    | { status: 'ok'; data: { citizen_rating: number; citizen_feedback: string | null; citizen_feedback_at: string } }
+    | { status: 'not_found' }
+    | { status: 'not_completed' }
+  > {
+    const incident = await queryOne<{ id: number; user_id: number; status: string }>(
+      `SELECT id, user_id, status FROM incidents WHERE id = $1 AND deleted_at IS NULL;`,
+      [incidentId]
+    );
+
+    if (!incident || incident.user_id !== userId) {
+      return { status: 'not_found' };
+    }
+
+    if (incident.status !== 'completed') {
+      return { status: 'not_completed' };
+    }
+
+    const cleanFeedback = feedback?.trim() ? feedback.trim() : null;
+    const serialized = JSON.stringify({
+      rating,
+      feedback: cleanFeedback || '',
+    });
+
+    const existing = await queryOne<{ id: number }>(
+      `SELECT id FROM incident_comments
+       WHERE incident_id = $1 AND user_id = $2 AND deleted_at IS NULL
+       ORDER BY id DESC LIMIT 1;`,
+      [incidentId, userId]
+    );
+
+    let feedbackAt: string = new Date().toISOString();
+    if (existing) {
+      const updated = await queryOne<{ updated_at: Date }>(
+        `UPDATE incident_comments
+         SET comment = $1, updated_at = NOW()
+         WHERE id = $2
+         RETURNING updated_at;`,
+        [serialized, existing.id]
+      );
+      if (updated?.updated_at) {
+        feedbackAt = new Date(updated.updated_at).toISOString();
+      }
+    } else {
+      const inserted = await queryOne<{ created_at: Date }>(
+        `INSERT INTO incident_comments (incident_id, user_id, comment)
+         VALUES ($1, $2, $3)
+         RETURNING created_at;`,
+        [incidentId, userId, serialized]
+      );
+      if (inserted?.created_at) {
+        feedbackAt = new Date(inserted.created_at).toISOString();
+      }
+    }
+
+    return {
+      status: 'ok',
+      data: {
+        citizen_rating: rating,
+        citizen_feedback: cleanFeedback,
+        citizen_feedback_at: feedbackAt,
+      },
+    };
+  }
+
+  async addIncidentImage(
+    incidentId: number,
+    userId: number,
+    imageUrl: string,
+    localFilePath: string
+  ): Promise<{ image_id: number; ai_analysis: AIAnalysisResult | null } | null> {
+    const savedImage = await queryOne<{ id: number }>(
       `INSERT INTO incident_images (incident_id, image_url, uploaded_by)
        SELECT id, $3, $2 FROM incidents
        WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
        RETURNING id;`,
       [incidentId, userId, imageUrl]
     );
-    return result.length > 0;
+    if (!savedImage) {
+      return null;
+    }
+
+    let analysis: AIAnalysisResult | null = null;
+    try {
+      const [incident, categories] = await Promise.all([
+        queryOne<{ title: string; description: string | null }>(
+          `SELECT title, description FROM incidents WHERE id = $1 AND deleted_at IS NULL;`,
+          [incidentId]
+        ),
+        query<{ id: number; name: string }>(
+          `SELECT id, name FROM categories ORDER BY id;`
+        ),
+      ]);
+
+      if (incident) {
+        analysis = await aiService.analyzeIncidentImage(
+          localFilePath,
+          incident.title,
+          incident.description || undefined,
+          categories
+        );
+      }
+
+      if (analysis) {
+        try {
+          await query(
+            `UPDATE incident_images SET ai_analysis = $1::jsonb WHERE id = $2;`,
+            [JSON.stringify(analysis), savedImage.id]
+          );
+        } catch (error) {
+          console.error('Failed to save AI analysis for incident image:', error);
+        }
+
+        try {
+          await query(
+            `UPDATE incidents
+             SET ai_confidence = $1, ai_suggested_category = $2, updated_at = NOW()
+             WHERE id = $3 AND deleted_at IS NULL;`,
+            [analysis.confidence, analysis.suggested_category_id, incidentId]
+          );
+        } catch (error) {
+          console.error('Failed to update incident with AI analysis:', error);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to analyze uploaded incident image:', error);
+    }
+
+    return { image_id: savedImage.id, ai_analysis: analysis };
   }
 
   /**
@@ -103,10 +315,22 @@ export class IncidentService {
     const offset = calculateOffset(pagination.page, pagination.limit);
     const incidents = await query<Incident>(
       `SELECT incidents.*,
+              categories.name AS category_name,
+              ROUND(ST_Y(incidents.location_point)::numeric, 6) AS latitude,
+              ROUND(ST_X(incidents.location_point)::numeric, 6) AS longitude,
+              COALESCE((SELECT json_agg(json_build_object(
+                          'id', id,
+                          'image_url', image_url,
+                          'is_before', is_before,
+                          'created_at', created_at
+                        ) ORDER BY created_at)
+                        FROM incident_images WHERE incident_id = incidents.id), '[]') AS images,
               COALESCE((SELECT json_agg(image_url ORDER BY created_at)
                         FROM incident_images WHERE incident_id = incidents.id), '[]') AS image_urls
-       FROM incidents ${whereClause}
-       ORDER BY created_at DESC
+       FROM incidents
+       LEFT JOIN categories ON categories.id = incidents.category_id
+       ${whereClause}
+       ORDER BY incidents.created_at DESC
        LIMIT $${paramCount} OFFSET $${paramCount + 1};`,
       [...params, pagination.limit, offset]
     );
@@ -121,11 +345,35 @@ export class IncidentService {
     incidentId: number,
     input: UpdateIncidentInput
   ): Promise<Incident | null> {
-    const { status, priority, assigned_to, assigned_technician } = input;
+    const { title, description, category_id, location_name, status, priority, assigned_to, assigned_technician } = input;
 
     let updateClause = 'SET updated_at = NOW()';
     const params: any[] = [];
     let paramCount = 1;
+
+    if (title !== undefined) {
+      updateClause += `, title = $${paramCount}`;
+      params.push(title);
+      paramCount++;
+    }
+
+    if (description !== undefined) {
+      updateClause += `, description = $${paramCount}`;
+      params.push(description);
+      paramCount++;
+    }
+
+    if (category_id !== undefined) {
+      updateClause += `, category_id = $${paramCount}`;
+      params.push(category_id);
+      paramCount++;
+    }
+
+    if (location_name !== undefined) {
+      updateClause += `, location_name = $${paramCount}`;
+      params.push(location_name);
+      paramCount++;
+    }
 
     if (status) {
       updateClause += `, status = $${paramCount}`;
@@ -154,7 +402,7 @@ export class IncidentService {
     params.push(incidentId);
 
     return queryOne<Incident>(
-      `UPDATE incidents ${updateClause} WHERE id = $${paramCount} RETURNING *;`,
+      `UPDATE incidents ${updateClause} WHERE id = $${paramCount} AND deleted_at IS NULL RETURNING *;`,
       params
     );
   }
@@ -174,8 +422,8 @@ export class IncidentService {
     return query<Incident>(
       `SELECT * FROM incidents
        WHERE ST_DWithin(
-         location_point,
-         ST_SetSRID(ST_Point($1, $2), 4326),
+         location_point::GEOGRAPHY,
+         ST_SetSRID(ST_Point($1, $2), 4326)::GEOGRAPHY,
          $3
        )
       AND deleted_at IS NULL ${assignmentScope}
@@ -205,7 +453,7 @@ export class IncidentService {
       `UPDATE incidents 
        SET deleted_at = NOW(), updated_at = NOW()
        WHERE id = $1 AND user_id = $2
-         AND deleted_at IS NULL
+         AND status = 'pending' AND deleted_at IS NULL
        RETURNING id;`,
       [incidentId, userId]
     );

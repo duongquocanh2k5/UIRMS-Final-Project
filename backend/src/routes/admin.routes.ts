@@ -8,6 +8,7 @@
  * PATCH  /admin/incidents/:incidentId/status - Update incident status
  * GET    /admin/analytics/incidents       - Analytics and trends
  * GET    /admin/incidents/heatmap         - Heatmap data
+ * GET    /admin/incidents/map-points      - Incident locations for the map
  * GET    /admin/technicians/workload      - Technician workload
  * GET    /admin/technicians/active        - Active technicians
  * GET    /admin/metrics/performance       - Performance metrics
@@ -27,7 +28,8 @@ router.use(authenticateToken);
 const incidentRoles = [AdminRole.SUPER_ADMIN, AdminRole.MANAGER, AdminRole.TECHNICIAN];
 const managementRoles = [AdminRole.SUPER_ADMIN, AdminRole.MANAGER];
 
-router.get('/incidents/heatmap', authorizeRole(...managementRoles), (req, res) => adminController.getIncidentsHeatmap(req, res));
+router.get('/incidents/heatmap', authorizeRole(...incidentRoles), (req, res) => adminController.getIncidentsHeatmap(req, res));
+router.get('/incidents/map-points', authorizeRole(...incidentRoles), (req, res) => adminController.getMapIncidentPoints(req, res));
 router.get('/incidents', authorizeRole(...incidentRoles), (req, res) => adminController.getAllIncidents(req, res));
 router.get('/incidents/:incidentId', authorizeRole(...incidentRoles), (req, res) => adminController.getIncident(req, res));
 router.post('/incidents/:incidentId/images/after', authorizeRole(...incidentRoles), incidentImageUpload.single('image'), (req, res) => adminController.uploadAfterImage(req, res));
@@ -37,17 +39,14 @@ router.post('/incidents/:incidentId/notes', authorizeRole(...incidentRoles), (re
 router.patch('/incidents/:incidentId/status', authorizeRole(...incidentRoles), (req, res) => adminController.updateIncidentStatus(req, res));
 router.post('/incidents/:incidentId/assign', authorizeRole(...managementRoles), (req, res) => adminController.assignIncident(req, res));
 
+// Dashboard and analytics are available to all admin roles (scoped by role in service layer)
+router.get('/dashboard/stats', authorizeRole(...incidentRoles), (req, res) => adminController.getDashboardStats(req, res));
+router.get('/analytics/incidents', authorizeRole(...incidentRoles), (req, res) => adminController.getIncidentAnalytics(req, res));
+
 router.use(authorizeRole(...managementRoles));
 
-// Global system views and configuration are reserved for super-admins.
-router.get('/dashboard/stats', authorizeRole(AdminRole.SUPER_ADMIN), (req, res) => adminController.getDashboardStats(req, res));
 router.get('/staff', (req, res) => adminController.getStaff(req, res));
 router.post('/notifications', (req, res) => adminController.sendNotification(req, res));
-
-// Analytics
-router.get('/analytics/incidents', authorizeRole(AdminRole.SUPER_ADMIN), (req, res) => adminController.getIncidentAnalytics(req, res));
-
-// Heatmap
 
 // Technicians
 router.get('/technicians/workload', authorizeRole(AdminRole.SUPER_ADMIN), (req, res) => adminController.getTechnicianWorkload(req, res));

@@ -13,7 +13,9 @@ interface User {
   email: string;
   full_name: string;
   phone: string;
+  is_verified?: boolean;
   avatar_url?: string;
+  bio?: string;
 }
 
 interface AuthContextType {
@@ -22,6 +24,7 @@ interface AuthContextType {
   isSignedIn: boolean;
   login: (email: string, password: string) => Promise<void>;
   register: (phone: string, email: string, password: string, fullName: string, identityNumber: string) => Promise<void>;
+  updateUserLocal: (userData: Partial<User>) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -113,6 +116,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const updateUserLocal = async (userData: Partial<User>) => {
+    if (!user) {
+      throw new Error('No signed-in user to update');
+    }
+
+    const updatedUser = { ...user, ...userData };
+    await AsyncStorage.setItem('userData', JSON.stringify(updatedUser));
+    setUser(updatedUser);
+  };
+
   const logout = async () => {
     try {
       await apiClient.logout().catch(() => { });
@@ -135,6 +148,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isSignedIn,
         login,
         register,
+        updateUserLocal,
         logout,
       }}
     >

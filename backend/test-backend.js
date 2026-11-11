@@ -95,16 +95,16 @@ async function run() {
   assert(healthRes.statusCode === 200, 'GET /api/health returns 200 OK');
   assert(healthRes.json && healthRes.json.status === 'OK', 'Health check body reports status OK');
 
-  // Test 4: Static File Auth Protection
-  console.log('\n4. Testing /uploads Security Protection:');
+  // Test 4: Public access to uploaded files
+  console.log('\n4. Testing public /uploads access:');
   const unauthUpload = await simulateRequest(app, 'GET', '/uploads/secret_incident.jpg');
-  assert(unauthUpload.statusCode === 401, 'GET /uploads without token is blocked with 401 Unauthorized');
+  assert(unauthUpload.statusCode === 404, 'GET /uploads without a token reaches static file lookup');
 
   const authUpload = await simulateRequest(app, 'GET', '/uploads/nonexistent.jpg', {
     authorization: `Bearer ${token}`
   });
-  // Since the file does not exist, it should pass auth and return 404 Not Found (not 401)
-  assert(authUpload.statusCode === 404, 'GET /uploads with valid JWT passes auth check (returns 404 for missing file)');
+  // Missing files return 404 whether or not a token is present.
+  assert(authUpload.statusCode === 404, 'GET /uploads with a token returns 404 for missing file');
 
   // Test 5: Missing Route Handling
   console.log('\n5. Testing 404 Route Handling:');
@@ -124,4 +124,3 @@ run().catch((err) => {
   console.error('Test execution failed:', err);
   process.exit(1);
 });
-

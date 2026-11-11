@@ -11,14 +11,18 @@ import { env } from './environment';
  * FIX: SSL certificate verification is configurable via DB_SSL_REJECT_UNAUTHORIZED env var.
  * In production, you should set DB_SSL_REJECT_UNAUTHORIZED=true and provide a CA certificate.
  */
-const useSsl = process.env.DB_SSL === 'true' || env.databaseUrl.includes('supabase.co');
+const useSsl =
+  process.env.DB_SSL === 'true' ||
+  env.nodeEnv === 'production' ||
+  env.databaseUrl.includes('supabase.co') ||
+  env.databaseUrl.includes('supabase.com');
 const rejectUnauthorized = process.env.DB_SSL_REJECT_UNAUTHORIZED === 'true';
 
 const pool = new Pool({
   connectionString: env.databaseUrl,
   max: 20,
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
+  connectionTimeoutMillis: 10000,
   ssl: useSsl ? {
     rejectUnauthorized,
     ...(process.env.DB_SSL_CA ? { ca: process.env.DB_SSL_CA } : {}),

@@ -17,16 +17,57 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import ConditionalLoader from '../components/ui/ConditionalLoader';
 import { useAuth } from '../context/AuthContext';
+import { useLanguage } from '../context/LanguageContext';
+import LanguageToggle from '../components/LanguageToggle';
+
+type RegisterErrorCode =
+  | 'fullNameRequired' | 'fullNameInvalid'
+  | 'phoneRequired' | 'phoneInvalid' | 'phoneExists'
+  | 'emailRequired' | 'emailInvalid' | 'emailExists'
+  | 'identityNumberRequired' | 'identityNumberInvalid'
+  | 'passwordRequired' | 'passwordInvalid'
+  | 'confirmPasswordRequired' | 'passwordMismatch'
+  | 'registrationInvalid' | 'registrationFailed';
+
+type RegisterErrors = Partial<Record<'fullName' | 'phone' | 'email' | 'identityNumber' | 'password' | 'confirmPassword' | 'general', RegisterErrorCode>>;
+
+const registrationFieldNames: Record<string, keyof RegisterErrors> = {
+  full_name: 'fullName',
+  phone: 'phone',
+  email: 'email',
+  identity_number: 'identityNumber',
+  password: 'password',
+};
 
 export default function RegisterScreen({ navigation }: any) {
+  const { t, language } = useLanguage();
   useEffect(() => {
     console.log('RegisterScreen mounted');
     if (typeof document !== 'undefined') {
-      document.title = 'UIRMS - ĐĂNG KÝ';
+      document.title = t('UIRMS - ĐĂNG KÝ', 'UIRMS - REGISTER');
     }
-  }, []);
+  }, [language, t]);
 
   const { register } = useAuth();
+  const errorMessages: Record<RegisterErrorCode, string> = {
+    fullNameRequired: t('Họ và tên là bắt buộc', 'Full name is required'),
+    fullNameInvalid: t('Họ và tên phải có ít nhất 2 ký tự', 'Full name must be at least 2 characters'),
+    phoneRequired: t('Số điện thoại là bắt buộc', 'Phone number is required'),
+    phoneInvalid: t('Số điện thoại không đúng định dạng Việt Nam', 'Enter a valid phone number'),
+    phoneExists: t('Số điện thoại đã được đăng ký', 'This phone number is already registered'),
+    emailRequired: t('Email là bắt buộc', 'Email is required'),
+    emailInvalid: t('Email không đúng định dạng', 'Enter a valid email address'),
+    emailExists: t('Email đã được đăng ký', 'This email is already registered'),
+    identityNumberRequired: t('CMND/CCCD là bắt buộc', 'National ID is required'),
+    identityNumberInvalid: t('CMND/CCCD phải gồm 9 hoặc 12 chữ số', 'National ID must contain 9 or 12 digits'),
+    passwordRequired: t('Mật khẩu là bắt buộc', 'Password is required'),
+    passwordInvalid: t('Mật khẩu cần ít nhất 8 ký tự, gồm chữ hoa, số và ký tự đặc biệt (!@#$%^&*)', 'Password must be at least 8 characters and include an uppercase letter, a number, and a special character (!@#$%^&*)'),
+    confirmPasswordRequired: t('Xác nhận mật khẩu là bắt buộc', 'Please confirm your password'),
+    passwordMismatch: t('Mật khẩu không khớp', 'Passwords do not match'),
+    registrationInvalid: t('Thông tin đăng ký không hợp lệ', 'Registration details are invalid'),
+    registrationFailed: t('Đã xảy ra lỗi', 'Something went wrong'),
+  };
+  const getErrorMessage = (code?: RegisterErrorCode) => code ? errorMessages[code] : '';
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
@@ -36,30 +77,38 @@ export default function RegisterScreen({ navigation }: any) {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [errors, setErrors] = useState<{
-    fullName?: string;
-    phone?: string;
-    email?: string;
-    identityNumber?: string;
-    password?: string;
-    confirmPassword?: string;
-    general?: string;
-  }>({});
+  const [errors, setErrors] = useState<RegisterErrors>({});
 
   const handleRegister = async () => {
     // clear previous errors
     setErrors({});
 
-    const newErrors: any = {};
-    if (!fullName) newErrors.fullName = 'Họ và tên là bắt buộc';
-    if (!phone) newErrors.phone = 'Số điện thoại là bắt buộc';
-    if (!email) newErrors.email = 'Email là bắt buộc';
-    if (!identityNumber) newErrors.identityNumber = 'CMND/CCCD là bắt buộc';
-    if (!password) newErrors.password = 'Mật khẩu là bắt buộc';
-    if (!confirmPassword) newErrors.confirmPassword = 'Xác nhận mật khẩu là bắt buộc';
+    const newErrors: RegisterErrors = {};
+    if (!fullName.trim()) newErrors.fullName = 'fullNameRequired';
+    else if (fullName.trim().length < 2) newErrors.fullName = 'fullNameInvalid';
+
+    if (!phone) newErrors.phone = 'phoneRequired';
+    else if (!/^(0|\+84)(1|2|3|4|5|6|7|8|9)[0-9]{8}$/.test(phone)) {
+      newErrors.phone = 'phoneInvalid';
+    }
+
+    if (!email) newErrors.email = 'emailRequired';
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) newErrors.email = 'emailInvalid';
+
+    if (!identityNumber) newErrors.identityNumber = 'identityNumberRequired';
+    else if (!/^(?:\d{9}|\d{12})$/.test(identityNumber)) {
+      newErrors.identityNumber = 'identityNumberInvalid';
+    }
+
+    if (!password) newErrors.password = 'passwordRequired';
+    else if (!/^(?=.*[A-Z])(?=.*[0-9])(?=.*[!@#$%^&*])[a-zA-Z0-9!@#$%^&*]{8,}$/.test(password)) {
+      newErrors.password = 'passwordInvalid';
+    }
+
+    if (!confirmPassword) newErrors.confirmPassword = 'confirmPasswordRequired';
 
     if (password && confirmPassword && password !== confirmPassword) {
-      newErrors.confirmPassword = 'Mật khẩu không khớp';
+      newErrors.confirmPassword = 'passwordMismatch';
     }
 
     if (Object.keys(newErrors).length > 0) {
@@ -71,22 +120,36 @@ export default function RegisterScreen({ navigation }: any) {
 
     try {
       await register(phone, email, password, fullName, identityNumber);
-      Alert.alert('Thành công', 'Đăng ký thành công, vui lòng đăng nhập', [
+      Alert.alert(t('Thành công', 'Success'), t('Đăng ký thành công, vui lòng đăng nhập', 'Registration successful. Please log in.'), [
         { text: 'OK', onPress: () => navigation.navigate('Login') },
       ]);
     } catch (error: any) {
       // Server-side validation errors may come in error.response.data.details
       const resp = error.response?.data;
       if (resp?.details && typeof resp.details === 'object') {
-        setErrors((prev) => ({ ...prev, ...resp.details }));
+        const fieldErrors: RegisterErrors = {};
+        for (const [field, message] of Object.entries(resp.details)) {
+          const localField = registrationFieldNames[field];
+          if (localField) {
+            fieldErrors[localField] = localField === 'fullName' ? 'fullNameInvalid'
+              : localField === 'phone' ? 'phoneInvalid'
+                : localField === 'email' ? 'emailInvalid'
+                  : localField === 'identityNumber' ? 'identityNumberInvalid'
+                    : 'passwordInvalid';
+          }
+        }
+        setErrors(Object.keys(fieldErrors).length > 0
+          ? fieldErrors
+          : { general: 'registrationInvalid' });
       } else if (resp?.error) {
         const msg: string = resp.error;
-        if (/email/i.test(msg)) setErrors((prev) => ({ ...prev, email: msg }));
-        else if (/phone/i.test(msg)) setErrors((prev) => ({ ...prev, phone: msg }));
-        else if (/identity|cmnd|cccd/i.test(msg)) setErrors((prev) => ({ ...prev, identityNumber: msg }));
-        else setErrors((prev) => ({ ...prev, general: msg }));
+        if (/email/i.test(msg)) setErrors((prev) => ({ ...prev, email: /exist|already|taken|duplicate/i.test(msg) ? 'emailExists' : 'emailInvalid' }));
+        else if (/phone/i.test(msg)) setErrors((prev) => ({ ...prev, phone: /exist|already|taken|duplicate/i.test(msg) ? 'phoneExists' : 'phoneInvalid' }));
+        else if (/identity|cmnd|cccd/i.test(msg)) setErrors((prev) => ({ ...prev, identityNumber: 'identityNumberInvalid' }));
+        else if (/password/i.test(msg)) setErrors((prev) => ({ ...prev, password: 'passwordInvalid' }));
+        else setErrors((prev) => ({ ...prev, general: 'registrationInvalid' }));
       } else {
-        setErrors({ general: error.message || 'Đã xảy ra lỗi' });
+        setErrors({ general: 'registrationFailed' });
       }
     } finally {
       setLoading(false);
@@ -96,88 +159,103 @@ export default function RegisterScreen({ navigation }: any) {
   return (
     <ScrollView style={styles.container}>
       {/* ConditionalLoader is mounted only when `loading` is true */}
-      <ConditionalLoader visible={loading} message="Đang xử lý..." />
-      <Text style={styles.title}>Đăng Ký Tài Khoản</Text>
+      <View style={styles.header}>
+        <Text style={styles.title}>{t('Đăng Ký Tài Khoản', 'Create an Account')}</Text>
+        <LanguageToggle />
+      </View>
+      <ConditionalLoader visible={loading} message={t('Đang xử lý...', 'Processing...')} />
       <TouchableOpacity onPress={() => navigation.navigate('ForgotPassword')}>
-        <Text style={styles.forgotLink}>Quên mật khẩu?</Text>
+        <Text style={styles.forgotLink}>{t('Quên mật khẩu?', 'Forgot password?')}</Text>
       </TouchableOpacity>
 
       <View style={styles.form}>
-        <TextInput
-          style={styles.input}
-          placeholder="Họ và tên"
-          value={fullName}
-          onChangeText={(text) => { setFullName(text); setErrors((p) => ({ ...p, fullName: undefined })); }}
-          editable={!loading}
-        />
-        {errors.fullName ? <Text style={styles.errorText}>{errors.fullName}</Text> : null}
-        <TextInput
-          style={styles.input}
-          placeholder="Số điện thoại"
-          value={phone}
-          onChangeText={setPhone}
-          keyboardType="phone-pad"
-          editable={!loading}
-        />
-        {errors.phone ? <Text style={styles.errorText}>{errors.phone}</Text> : null}
-        <TextInput
-          style={styles.input}
-          placeholder="Email"
-          value={email}
-          onChangeText={setEmail}
-          keyboardType="email-address"
-          editable={!loading}
-        />
-        {errors.email ? <Text style={styles.errorText}>{errors.email}</Text> : null}
-        <TextInput
-          style={styles.input}
-          placeholder="Số CMND/CCCD"
-          value={identityNumber}
-          onChangeText={setIdentityNumber}
-          keyboardType="numeric"
-          editable={!loading}
-        />
-        {errors.identityNumber ? <Text style={styles.errorText}>{errors.identityNumber}</Text> : null}
-        <View style={styles.passwordInputWrapper}>
+        <View style={styles.fieldGroup}>
           <TextInput
-            style={[styles.input, styles.passwordInput]}
-            placeholder="Mật khẩu"
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry={!showPassword}
+            style={styles.input}
+            placeholder={t('Họ và tên', 'Full name')}
+            value={fullName}
+            onChangeText={(text) => { setFullName(text); setErrors((p) => ({ ...p, fullName: undefined })); }}
             editable={!loading}
           />
-          <TouchableOpacity
-            style={styles.eyeButton}
-            onPress={() => setShowPassword((visible) => !visible)}
-            accessibilityRole="button"
-            accessibilityLabel={showPassword ? 'Ẩn mật khẩu' : 'Hiển thị mật khẩu'}
-          >
-            <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={22} color="#64748b" />
-          </TouchableOpacity>
+          {errors.fullName ? <Text style={styles.errorText}>{getErrorMessage(errors.fullName)}</Text> : null}
         </View>
-        {errors.password ? <Text style={styles.errorText}>{errors.password}</Text> : null}
-        <View style={styles.passwordInputWrapper}>
+        <View style={styles.fieldGroup}>
           <TextInput
-            style={[styles.input, styles.passwordInput]}
-            placeholder="Xác nhận mật khẩu"
-            value={confirmPassword}
-            onChangeText={setConfirmPassword}
-            secureTextEntry={!showConfirmPassword}
+            style={styles.input}
+            placeholder={t('Số điện thoại', 'Phone number')}
+            value={phone}
+            onChangeText={(text) => { setPhone(text); setErrors((p) => ({ ...p, phone: undefined })); }}
+            keyboardType="phone-pad"
             editable={!loading}
           />
-          <TouchableOpacity
-            style={styles.eyeButton}
-            onPress={() => setShowConfirmPassword((visible) => !visible)}
-            accessibilityRole="button"
-            accessibilityLabel={showConfirmPassword ? 'Ẩn mật khẩu xác nhận' : 'Hiển thị mật khẩu xác nhận'}
-          >
-            <Ionicons name={showConfirmPassword ? 'eye-off-outline' : 'eye-outline'} size={22} color="#64748b" />
-          </TouchableOpacity>
+          {errors.phone ? <Text style={styles.errorText}>{getErrorMessage(errors.phone)}</Text> : null}
         </View>
-        {errors.confirmPassword ? <Text style={styles.errorText}>{errors.confirmPassword}</Text> : null}
+        <View style={styles.fieldGroup}>
+          <TextInput
+            style={styles.input}
+            placeholder="Email"
+            value={email}
+            onChangeText={(text) => { setEmail(text); setErrors((p) => ({ ...p, email: undefined })); }}
+            keyboardType="email-address"
+            editable={!loading}
+          />
+          {errors.email ? <Text style={styles.errorText}>{getErrorMessage(errors.email)}</Text> : null}
+        </View>
+        <View style={styles.fieldGroup}>
+          <TextInput
+            style={styles.input}
+            placeholder={t('Số CMND/CCCD', 'National ID number')}
+            value={identityNumber}
+            onChangeText={(text) => { setIdentityNumber(text); setErrors((p) => ({ ...p, identityNumber: undefined })); }}
+            keyboardType="numeric"
+            editable={!loading}
+          />
+          {errors.identityNumber ? <Text style={styles.errorText}>{getErrorMessage(errors.identityNumber)}</Text> : null}
+        </View>
+        <View style={styles.fieldGroup}>
+          <View style={styles.passwordInputWrapper}>
+            <TextInput
+              style={[styles.input, styles.passwordInput]}
+              placeholder={t('Mật khẩu', 'Password')}
+              value={password}
+              onChangeText={(text) => { setPassword(text); setErrors((p) => ({ ...p, password: undefined })); }}
+              secureTextEntry={!showPassword}
+              editable={!loading}
+            />
+            <TouchableOpacity
+              style={styles.eyeButton}
+              onPress={() => setShowPassword((visible) => !visible)}
+              accessibilityRole="button"
+              accessibilityLabel={showPassword ? t('Ẩn mật khẩu', 'Hide password') : t('Hiển thị mật khẩu', 'Show password')}
+            >
+              <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={22} color="#64748b" />
+            </TouchableOpacity>
+          </View>
+          {errors.password ? <Text style={styles.errorText}>{getErrorMessage(errors.password)}</Text> : null}
+        </View>
+        <View style={styles.fieldGroup}>
+          <View style={styles.passwordInputWrapper}>
+            <TextInput
+              style={[styles.input, styles.passwordInput]}
+              placeholder={t('Xác nhận mật khẩu', 'Confirm password')}
+              value={confirmPassword}
+              onChangeText={(text) => { setConfirmPassword(text); setErrors((p) => ({ ...p, confirmPassword: undefined })); }}
+              secureTextEntry={!showConfirmPassword}
+              editable={!loading}
+            />
+            <TouchableOpacity
+              style={styles.eyeButton}
+              onPress={() => setShowConfirmPassword((visible) => !visible)}
+              accessibilityRole="button"
+              accessibilityLabel={showConfirmPassword ? t('Ẩn mật khẩu xác nhận', 'Hide password confirmation') : t('Hiển thị mật khẩu xác nhận', 'Show password confirmation')}
+            >
+              <Ionicons name={showConfirmPassword ? 'eye-off-outline' : 'eye-outline'} size={22} color="#64748b" />
+            </TouchableOpacity>
+          </View>
+          {errors.confirmPassword ? <Text style={styles.errorText}>{getErrorMessage(errors.confirmPassword)}</Text> : null}
+        </View>
 
-        {errors.general ? <Text style={styles.errorText}>{errors.general}</Text> : null}
+        {errors.general ? <Text style={styles.errorText}>{getErrorMessage(errors.general)}</Text> : null}
 
         <TouchableOpacity
           style={[styles.button, loading && styles.buttonDisabled]}
@@ -187,12 +265,12 @@ export default function RegisterScreen({ navigation }: any) {
           {loading ? (
             <ActivityIndicator color="#fff" />
           ) : (
-            <Text style={styles.buttonText}>Đăng Ký</Text>
+            <Text style={styles.buttonText}>{t('Đăng Ký', 'Register')}</Text>
           )}
         </TouchableOpacity>
 
         <TouchableOpacity onPress={() => navigation.navigate('Login')}>
-          <Text style={styles.link}>Đã có tài khoản? Đăng nhập</Text>
+          <Text style={styles.link}>{t('Đã có tài khoản? Đăng nhập', 'Already have an account? Log in')}</Text>
         </TouchableOpacity>
       </View>
     </ScrollView>
@@ -212,8 +290,12 @@ const styles = StyleSheet.create({
     marginBottom: 24,
     marginTop: 20,
   },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 20, marginBottom: 8 },
   form: {
     gap: 12,
+  },
+  fieldGroup: {
+    gap: 4,
   },
   input: {
     borderWidth: 1,
@@ -259,8 +341,7 @@ const styles = StyleSheet.create({
   },
   errorText: {
     color: '#dc2626',
-    marginTop: 6,
-    marginBottom: -6,
+    fontSize: 13,
   },
   forgotLink: {
     color: '#2563eb',

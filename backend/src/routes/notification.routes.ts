@@ -5,6 +5,7 @@
  * GET    /notifications                      - Get notifications
  * GET    /notifications/unread/count         - Get unread count
  * GET    /notifications/preferences          - Get notification preferences
+ * PUT    /notifications/:notificationId/read - Mark as read
  * PATCH  /notifications/:notificationId/read - Mark as read
  * PATCH  /notifications/read-all             - Mark all as read
  * PATCH  /notifications/preferences          - Update preferences
@@ -32,6 +33,7 @@ router.get('/preferences', (req, res) => notificationController.getPreferences(r
 
 // Mark as read
 router.patch('/:notificationId/read', (req, res) => notificationController.markAsRead(req, res));
+router.put('/:notificationId/read', (req, res) => notificationController.markAsRead(req, res));
 
 // Mark all as read
 router.patch('/read-all', (req, res) => notificationController.markAllAsRead(req, res));

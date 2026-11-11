@@ -15,7 +15,7 @@ interface EnvironmentConfig {
   jwtExpiry: string;
   adminJwtExpiry: string;
   corsOrigin: string[];
-  geminiApiKey: string;
+  geminiApiKey: string | undefined;
   otpExpiryMinutes: number;
   maxFileSizeMb: number;
   smtpHost?: string | null;
@@ -23,6 +23,7 @@ interface EnvironmentConfig {
   smtpUser?: string | null;
   smtpPass?: string | null;
   emailFrom?: string | null;
+  brevoApiKey?: string | null;
 }
 
 /**
@@ -32,7 +33,6 @@ function validateEnv(): void {
   const requiredEnvVars = [
     'DATABASE_URL',
     'JWT_SECRET',
-    'GEMINI_API_KEY',
   ];
 
   const missingVars = requiredEnvVars.filter((envVar) => !process.env[envVar]);
@@ -64,8 +64,9 @@ function getEnvironment(): EnvironmentConfig {
   const smtpHost = process.env.SMTP_HOST || null;
   const smtpPort = process.env.SMTP_PORT ? parseInt(process.env.SMTP_PORT, 10) : null;
   const smtpUser = process.env.SMTP_USER || null;
-  const smtpPass = process.env.SMTP_PASS || null;
+  const smtpPass = process.env.SMTP_PASS || process.env.SMTP_PASSWORD || null;
   const emailFrom = process.env.EMAIL_FROM || null;
+  const brevoApiKey = process.env.BREVO_API_KEY || null;
 
   return {
     nodeEnv,
@@ -75,7 +76,7 @@ function getEnvironment(): EnvironmentConfig {
     jwtExpiry,
     adminJwtExpiry,
     corsOrigin,
-    geminiApiKey: process.env.GEMINI_API_KEY!,
+    geminiApiKey: process.env.GEMINI_API_KEY,
     otpExpiryMinutes,
     maxFileSizeMb,
     smtpHost,
@@ -83,6 +84,7 @@ function getEnvironment(): EnvironmentConfig {
     smtpUser,
     smtpPass,
     emailFrom,
+    brevoApiKey,
   };
 }
 

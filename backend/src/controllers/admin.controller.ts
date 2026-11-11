@@ -17,9 +17,9 @@ export class AdminController {
    * Get dashboard statistics
    * GET /admin/dashboard/stats
    */
-  async getDashboardStats(_req: AuthRequest, res: Response): Promise<void> {
+  async getDashboardStats(req: AuthRequest, res: Response): Promise<void> {
     try {
-      const stats = await adminService.getDashboardStats();
+      const stats = await adminService.getDashboardStats(req.user);
 
       res.json({
         success: true,
@@ -93,7 +93,7 @@ export class AdminController {
   async uploadAfterImage(req: AuthRequest, res: Response): Promise<void> {
     const file = req.file;
     if (!file) {
-      res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Vui lòng chọn ảnh hiện trường.' });
+      res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Please select an incident photo.' });
       return;
     }
 
@@ -160,7 +160,7 @@ export class AdminController {
     } catch (error) {
       console.error('Assign incident error:', error);
       if (error instanceof Error && error.message === 'ASSIGNEE_NOT_FOUND') {
-        res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Nhân viên không tồn tại hoặc đã bị vô hiệu hóa' });
+        res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'The staff member does not exist or is inactive.' });
         return;
       }
       res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
@@ -186,7 +186,7 @@ export class AdminController {
       }
 
       if (status === 'rejected' && (typeof rejection_reason !== 'string' || !rejection_reason.trim())) {
-        res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Vui lòng nhập lý do từ chối.' });
+        res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Please provide a reason for rejection.' });
         return;
       }
 
@@ -209,11 +209,11 @@ export class AdminController {
         return;
       }
       if (error instanceof Error && error.message === 'COMPLETION_EVIDENCE_REQUIRED') {
-        res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Vui lòng tải ảnh kết quả sau xử lý trước khi hoàn tất.' });
+        res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Please upload a completion photo before marking the incident as completed.' });
         return;
       }
       if (error instanceof Error && error.message === 'REJECTION_REASON_REQUIRED') {
-        res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Vui lòng nhập lý do từ chối.' });
+        res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Please provide a reason for rejection.' });
         return;
       }
       res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
@@ -295,7 +295,7 @@ export class AdminController {
    * Get incident analytics and trends
    * GET /admin/analytics/incidents?period=week
    */
-  async getIncidentAnalytics(req: Request, res: Response): Promise<void> {
+  async getIncidentAnalytics(req: AuthRequest, res: Response): Promise<void> {
     try {
       const { period = 'week' } = req.query;
 
@@ -306,7 +306,7 @@ export class AdminController {
         return;
       }
 
-      const analytics = await adminService.getIncidentAnalytics(period as string);
+      const analytics = await adminService.getIncidentAnalytics(period as string, req.user);
 
       res.json({
         success: true,
@@ -344,9 +344,27 @@ export class AdminController {
    * Get heatmap data for visualization
    * GET /admin/incidents/heatmap
    */
-  async getIncidentsHeatmap(_req: Request, res: Response): Promise<void> {
+  async getIncidentsHeatmap(req: AuthRequest, res: Response): Promise<void> {
     try {
-      const heatmapData = await adminService.getHeatmapData();
+      const { category_id } = req.query;
+      let categoryId: number | undefined;
+      if (category_id !== undefined) {
+        if (typeof category_id !== 'string' || !/^[1-9]\d*$/.test(category_id)) {
+          res.status(HTTP_STATUS.BAD_REQUEST).json({
+            error: 'category_id must be a positive integer',
+          });
+          return;
+        }
+        categoryId = Number(category_id);
+        if (!Number.isSafeInteger(categoryId)) {
+          res.status(HTTP_STATUS.BAD_REQUEST).json({
+            error: 'category_id must be a positive integer',
+          });
+          return;
+        }
+      }
+
+      const heatmapData = await adminService.getHeatmapData(categoryId, req.user);
 
       res.json({
         success: true,
@@ -355,6 +373,29 @@ export class AdminController {
       });
     } catch (error) {
       console.error('Get heatmap data error:', error);
+      res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+        error: ERROR_MESSAGES.INTERNAL_ERROR,
+      });
+    }
+  }
+
+  async getMapIncidentPoints(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const { category_id } = req.query;
+      let categoryId: number | undefined;
+      if (category_id !== undefined) {
+        if (typeof category_id !== 'string' || !/^[1-9]\d*$/.test(category_id)) {
+          res.status(HTTP_STATUS.BAD_REQUEST).json({
+            error: 'category_id must be a positive integer',
+          });
+          return;
+        }
+        categoryId = Number(category_id);
+      }
+      const points = await adminService.getMapIncidentPoints(categoryId, req.user);
+      res.json({ success: true, data: points, count: points.length });
+    } catch (error) {
+      console.error('Get map incident points error:', error);
       res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
         error: ERROR_MESSAGES.INTERNAL_ERROR,
       });

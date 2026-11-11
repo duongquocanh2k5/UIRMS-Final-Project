@@ -19,7 +19,15 @@ export function getCorsOptions(): CorsOptions {
         /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)
       );
 
-      if (!origin || env.corsOrigin.includes(origin) || isLocalDevelopmentOrigin) {
+      const normalizedOrigin = origin?.replace(/\/$/, '');
+      const allowedOrigins = env.corsOrigin.map((o) => o.trim().replace(/\/$/, ''));
+
+      if (
+        !origin ||
+        allowedOrigins.includes('*') ||
+        (normalizedOrigin && allowedOrigins.includes(normalizedOrigin)) ||
+        isLocalDevelopmentOrigin
+      ) {
         callback(null, true);
         return;
       }

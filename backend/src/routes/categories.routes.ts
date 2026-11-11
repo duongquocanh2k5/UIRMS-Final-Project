@@ -7,7 +7,7 @@ import { categoriesController } from '../controllers/categories.controller';
 const router = Router();
 
 router.use(authenticateToken);
-router.get('/', authorizeRole(AdminRole.SUPER_ADMIN, AdminRole.MANAGER, AdminRole.TECHNICIAN), (req, res) => categoriesController.getAll(req, res));
+router.get('/', authorizeRole('user', AdminRole.SUPER_ADMIN, AdminRole.MANAGER, AdminRole.TECHNICIAN), (req, res) => categoriesController.getAll(req, res));
 router.post(
     '/',
     authorizeRole(AdminRole.SUPER_ADMIN),

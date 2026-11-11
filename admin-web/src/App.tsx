@@ -2,6 +2,7 @@ import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-route
 import AdminLayout from './components/AdminLayout';
 import AuthLayout from './components/AuthLayout';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { LanguageProvider } from './context/LanguageContext';
 import Dashboard from './pages/Dashboard';
 import ForgotPassword from './pages/ForgotPassword';
 import IncidentDetail from './pages/IncidentDetail';
@@ -19,22 +20,21 @@ function AppRoutes() {
     if (!isAuthenticated) return <AuthLayout><Routes><Route path="/login" element={<Login />} /><Route path="/forgot-password" element={<ForgotPassword />} /><Route path="*" element={<Navigate to="/login" state={{ from: location }} replace />} /></Routes></AuthLayout>;
 
     const isSuperAdmin = user.role === 'super_admin';
-    const canViewMapAndStats = isSuperAdmin || user.role === 'manager';
+    const canViewStats = isSuperAdmin || user.role === 'manager';
     const isTechnician = user.role === 'technician';
-    const defaultRoute = isSuperAdmin ? '/' : '/incidents';
 
     return <AdminLayout fullBleed={location.pathname === '/map'}><Routes>
-        <Route path="/" element={isSuperAdmin ? <Dashboard /> : <Navigate to="/incidents" replace />} />
+        <Route path="/" element={<Dashboard />} />
         <Route path="/incidents" element={<Incidents />} />
         <Route path="/incidents/:id" element={<IncidentDetail />} />
-        <Route path="/map" element={canViewMapAndStats ? <MapPage /> : <Navigate to="/incidents" replace />} />
-        <Route path="/stats" element={canViewMapAndStats ? <Stats /> : <Navigate to="/incidents" replace />} />
-        <Route path="/staff" element={isTechnician ? <Navigate to="/incidents" replace /> : <Staff />} />
+        <Route path="/map" element={<MapPage />} />
+        <Route path="/stats" element={canViewStats ? <Stats /> : <Navigate to="/" replace />} />
+        <Route path="/staff" element={isTechnician ? <Navigate to="/" replace /> : <Staff />} />
         <Route path="/settings" element={<Settings />} />
-        <Route path="*" element={<Navigate to={defaultRoute} replace />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
     </Routes></AdminLayout>;
 }
 
 export default function App() {
-    return <AuthProvider><BrowserRouter><AppRoutes /></BrowserRouter></AuthProvider>;
+    return <LanguageProvider><AuthProvider><BrowserRouter><AppRoutes /></BrowserRouter></AuthProvider></LanguageProvider>;
 }

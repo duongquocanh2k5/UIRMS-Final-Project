@@ -50,6 +50,9 @@ export interface AdminIncident {
     latitude?: number;
     longitude?: number;
     image_urls?: string[];
+    citizen_rating?: number | null;
+    citizen_feedback?: string | null;
+    citizen_feedback_at?: string | null;
 }
 
 export interface AdminIncidentImage {
@@ -79,6 +82,7 @@ export interface AdminIncidentNote {
     note: string;
     created_by: number;
     created_by_name?: string;
+    created_by_username?: string;
     created_at: string;
 }
 
@@ -89,12 +93,16 @@ export interface AssignableAdmin {
     role: string;
     is_active: boolean;
     is_online: boolean;
+    active_count?: number;
+    completed_count?: number;
 }
 
 export interface AdminStats {
     totalIncidents: number;
     newIncidents: number;
     openIncidents: number;
+    assignedIncidents?: number;
+    unassignedIncidents?: number;
     inProgressIncidents: number;
     completedIncidents: number;
     urgentIncidents: number;
@@ -105,6 +113,17 @@ export interface HeatmapPoint {
     lat: number;
     lng: number;
     count: number;
+}
+
+export interface MapIncidentPoint {
+    id: number;
+    title: string;
+    status: AdminIncident['status'];
+    category_id?: number;
+    category_name?: string | null;
+    category_color?: string | null;
+    lat: number;
+    lng: number;
 }
 
 export interface StatsRange {
@@ -344,7 +363,8 @@ export const adminApi = {
     addIncidentNote: (incidentId: number, note: string) => request<ApiResponse<AdminIncidentNote>>(`/admin/incidents/${incidentId}/notes`, { method: 'POST', body: JSON.stringify({ note }) }),
     sendAdminNotification: (payload: { user_id: number; incident_id: number; title: string; message: string; type: 'status_update' | 'new_reply' | 'system' | 'reminder' }) => request<ApiResponse<unknown>>('/admin/notifications', { method: 'POST', body: JSON.stringify(payload) }),
     getAnalytics: (period: 'day' | 'week' | 'month' = 'week') => request<ApiResponse<unknown>>(`/admin/analytics/incidents?period=${period}`),
-    getHeatmap: () => request<ApiResponse<HeatmapPoint[]>>('/admin/incidents/heatmap'),
+    getHeatmap: (categoryId?: number) => request<ApiResponse<HeatmapPoint[]>>(`/admin/incidents/heatmap${queryString({ category_id: categoryId })}`),
+    getMapIncidents: (categoryId?: number) => request<ApiResponse<MapIncidentPoint[]>>(`/admin/incidents/map-points${queryString({ category_id: categoryId })}`),
     getActiveTechnicians: () => request<ApiResponse<unknown>>('/admin/technicians/active'),
     getTechnicianWorkload: () => request<ApiResponse<unknown>>('/admin/technicians/workload'),
     getPerformanceMetrics: () => request<ApiResponse<unknown>>('/admin/metrics/performance'),

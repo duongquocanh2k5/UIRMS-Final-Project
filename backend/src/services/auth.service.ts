@@ -54,6 +54,8 @@ export class AuthService {
         throw new Error('Failed to create user');
       }
 
+      void emailService.sendEmailVerificationOTP(email, verification_code);
+
       return result[0]!;
     } catch (error: any) {
       if (error.code === '23505') {
@@ -137,6 +139,35 @@ export class AuthService {
   }
 
   /**
+   * Send email verification OTP to current user
+   */
+  async sendEmailVerificationOTP(userId: number): Promise<'sent' | 'not_found' | 'already_verified' | 'delivery_failed'> {
+    const user = await this.getUserById(userId);
+    if (!user) {
+      return 'not_found';
+    }
+    if (user.is_verified) {
+      return 'already_verified';
+    }
+
+    const otp = generateSecureOTP();
+    const expiresAt = new Date(Date.now() + env.otpExpiryMinutes * 60 * 1000);
+
+    await query(
+      `UPDATE users SET verification_code = $1, verification_code_expires_at = $2, updated_at = NOW()
+       WHERE id = $3 AND deleted_at IS NULL;`,
+      [otp, expiresAt, userId]
+    );
+
+    const sent = await emailService.sendEmailVerificationOTP(user.email, otp);
+    if (sent) {
+      return 'sent';
+    }
+
+    return 'delivery_failed';
+  }
+
+  /**
    * Verify user email — checks OTP and expiry
    */
   async verifyUserEmail(userId: number, verificationCode: string): Promise<boolean> {
@@ -155,7 +186,7 @@ export class AuthService {
   /**
    * Send password reset OTP — with expiry
    */
-  async sendPasswordResetOTP(email: string): Promise<boolean> {
+  async sendPasswordResetOTP(email: string): Promise<'sent' | 'not_found' | 'delivery_failed'> {
     const otp = generateSecureOTP();
     const expiresAt = new Date(Date.now() + env.otpExpiryMinutes * 60 * 1000);
 
@@ -166,13 +197,22 @@ export class AuthService {
       [otp, expiresAt, email]
     );
 
-    if (result.length > 0) {
-      // Try to send OTP via email service; fallback logs in emailService
-      const sent = await emailService.sendPasswordResetEmail(email, otp);
-      return sent;
+    if (result.length === 0) {
+      return 'not_found';
     }
 
-    return false;
+    const sent = await emailService.sendPasswordResetEmail(email, otp);
+    if (sent) {
+      return 'sent';
+    }
+
+    await query(
+      `UPDATE users
+       SET verification_code = NULL, verification_code_expires_at = NULL, updated_at = NOW()
+       WHERE email = $1 AND verification_code = $2;`,
+      [email, otp]
+    );
+    return 'delivery_failed';
   }
 
   /**
@@ -204,6 +244,7 @@ export class AuthService {
     userId: number,
     updates: {
       full_name?: string;
+      phone?: string;
       bio?: string;
       avatar_url?: string;
     }
@@ -212,9 +253,13 @@ export class AuthService {
     const values: any[] = [];
     let paramCount = 1;
 
-    if (updates.full_name) {
+    if (updates.full_name !== undefined) {
       fields.push(`full_name = $${paramCount++}`);
       values.push(updates.full_name);
+    }
+    if (updates.phone !== undefined) {
+      fields.push(`phone = $${paramCount++}`);
+      values.push(updates.phone);
     }
     if (updates.bio !== undefined) {
       fields.push(`bio = $${paramCount++}`);
@@ -241,6 +286,31 @@ export class AuthService {
     );
 
     return result[0] || null;
+  }
+
+  async changeUserPassword(
+    userId: number,
+    currentPassword: string,
+    newPassword: string
+  ): Promise<'not_found' | 'invalid_password' | 'updated'> {
+    const user = await this.getUserById(userId);
+    if (!user) {
+      return 'not_found';
+    }
+
+    if (!(await comparePassword(currentPassword, user.password_hash))) {
+      return 'invalid_password';
+    }
+
+    const passwordHash = await hashPassword(newPassword);
+    const result = await query(
+      `UPDATE users SET password_hash = $1, updated_at = NOW()
+       WHERE id = $2 AND deleted_at IS NULL
+       RETURNING id;`,
+      [passwordHash, userId]
+    );
+
+    return result.length > 0 ? 'updated' : 'not_found';
   }
 
   /**

@@ -220,6 +220,11 @@ export interface Incident {
   updated_at: Date;
   completed_at?: Date;
   deleted_at?: Date;
+  category_name?: string | null;
+  latitude?: number;
+  longitude?: number;
+  images?: IncidentImage[];
+  image_urls?: string[];
 }
 
 export interface CreateIncidentInput {
@@ -234,6 +239,10 @@ export interface CreateIncidentInput {
 }
 
 export interface UpdateIncidentInput {
+  title?: string;
+  description?: string;
+  category_id?: number;
+  location_name?: string;
   status?: IncidentStatus;
   priority?: IncidentPriority;
   assigned_to?: number;

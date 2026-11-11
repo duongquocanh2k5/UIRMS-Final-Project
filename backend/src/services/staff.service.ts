@@ -88,7 +88,7 @@ export class StaffService {
                 params
             ),
             queryOne<{ name: string; activeCount: number }>(
-                `SELECT COALESCE(NULLIF(BTRIM(d.name), ''), 'Không xác định') AS name,
+                `SELECT COALESCE(NULLIF(BTRIM(d.name), ''), 'Unspecified') AS name,
                   COUNT(*)::int AS "activeCount"
          FROM admins a
          JOIN incidents i ON i.assigned_to = a.id
@@ -98,7 +98,7 @@ export class StaffService {
                      ${managerScopeForStaff}
            AND i.deleted_at IS NULL
            AND i.status IN ('assigned', 'in_progress')
-         GROUP BY COALESCE(NULLIF(BTRIM(d.name), ''), 'Không xác định')
+         GROUP BY COALESCE(NULLIF(BTRIM(d.name), ''), 'Unspecified')
          ORDER BY COUNT(*) DESC, name ASC
           LIMIT 1;`,
                 params
@@ -109,7 +109,7 @@ export class StaffService {
             totalStaff: Number(summary?.totalStaff ?? 0),
             activeStaff: Number(summary?.activeStaff ?? 0),
             busiestDepartment: {
-                name: department?.name ?? 'Không xác định',
+                name: department?.name ?? 'Unspecified',
                 activeCount: Number(department?.activeCount ?? 0),
             },
         };
