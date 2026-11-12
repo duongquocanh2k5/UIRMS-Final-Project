@@ -1,168 +1,347 @@
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 
-type TrafficSignType = 'road' | 'light' | 'water' | 'drain' | 'waste' | 'tree' | 'elevator' | 'safety' | 'generic';
+export type UrbanCategoryType =
+  | 'road'
+  | 'light'
+  | 'water'
+  | 'drain'
+  | 'waste'
+  | 'tree'
+  | 'traffic'
+  | 'safety'
+  | 'elevator'
+  | 'sidewalk'
+  | 'signal'
+  | 'pollution'
+  | 'cable'
+  | 'fire'
+  | 'other';
 
-interface TrafficSignIconProps {
-  categoryName: string;
-  size?: number;
+export interface CategoryVisualConfig {
+  type: UrbanCategoryType;
+  icon: keyof typeof Ionicons.glyphMap;
+  iconColor: string;
+  badgeBg: string;
+  innerBg: string;
+  borderColor: string;
 }
 
-function getTrafficSignType(categoryName: string): TrafficSignType {
-  const name = categoryName
+const VISUAL_MAP: Record<UrbanCategoryType, CategoryVisualConfig> = {
+  road: {
+    type: 'road',
+    icon: 'construct',
+    iconColor: '#DC2626',
+    badgeBg: '#FEF2F2',
+    innerBg: '#FEE2E2',
+    borderColor: '#FECACA',
+  },
+  light: {
+    type: 'light',
+    icon: 'bulb',
+    iconColor: '#D97706',
+    badgeBg: '#FFFBEB',
+    innerBg: '#FEF3C7',
+    borderColor: '#FDE68A',
+  },
+  water: {
+    type: 'water',
+    icon: 'water',
+    iconColor: '#0284C7',
+    badgeBg: '#F0F9FF',
+    innerBg: '#E0F2FE',
+    borderColor: '#BAE6FD',
+  },
+  drain: {
+    type: 'drain',
+    icon: 'funnel',
+    iconColor: '#0D9488',
+    badgeBg: '#F0FDFA',
+    innerBg: '#CCFBF1',
+    borderColor: '#99F6E4',
+  },
+  waste: {
+    type: 'waste',
+    icon: 'trash',
+    iconColor: '#16A34A',
+    badgeBg: '#F0FDF4',
+    innerBg: '#DCFCE7',
+    borderColor: '#BBF7D0',
+  },
+  tree: {
+    type: 'tree',
+    icon: 'leaf',
+    iconColor: '#15803D',
+    badgeBg: '#ECFDF5',
+    innerBg: '#D1FAE5',
+    borderColor: '#A7F3D0',
+  },
+  traffic: {
+    type: 'traffic',
+    icon: 'bicycle',
+    iconColor: '#EA580C',
+    badgeBg: '#FFF7ED',
+    innerBg: '#FFEDD5',
+    borderColor: '#FED7AA',
+  },
+  safety: {
+    type: 'safety',
+    icon: 'shield-checkmark',
+    iconColor: '#E11D48',
+    badgeBg: '#FFF1F2',
+    innerBg: '#FFE4E6',
+    borderColor: '#FECDD3',
+  },
+  elevator: {
+    type: 'elevator',
+    icon: 'business',
+    iconColor: '#4F46E5',
+    badgeBg: '#EEF2FF',
+    innerBg: '#E0E7FF',
+    borderColor: '#C7D2FE',
+  },
+  sidewalk: {
+    type: 'sidewalk',
+    icon: 'walk',
+    iconColor: '#B45309',
+    badgeBg: '#FFFBEB',
+    innerBg: '#FEF3C7',
+    borderColor: '#FCD34D',
+  },
+  signal: {
+    type: 'signal',
+    icon: 'trail-sign',
+    iconColor: '#2563EB',
+    badgeBg: '#EFF6FF',
+    innerBg: '#DBEAFE',
+    borderColor: '#BFDBFE',
+  },
+  pollution: {
+    type: 'pollution',
+    icon: 'volume-high',
+    iconColor: '#DB2777',
+    badgeBg: '#FDF2F8',
+    innerBg: '#FCE7F3',
+    borderColor: '#FBCFE8',
+  },
+  cable: {
+    type: 'cable',
+    icon: 'git-network',
+    iconColor: '#7C3AED',
+    badgeBg: '#F5F3FF',
+    innerBg: '#EDE9FE',
+    borderColor: '#DDD6FE',
+  },
+  fire: {
+    type: 'fire',
+    icon: 'flame',
+    iconColor: '#DC2626',
+    badgeBg: '#FEF2F2',
+    innerBg: '#FEE2E2',
+    borderColor: '#FCA5A5',
+  },
+  other: {
+    type: 'other',
+    icon: 'grid',
+    iconColor: '#475569',
+    badgeBg: '#F8FAFC',
+    innerBg: '#E2E8F0',
+    borderColor: '#CBD5E1',
+  },
+};
+
+export function detectUrbanCategoryType(rawName?: string | null): UrbanCategoryType {
+  if (!rawName) return 'other';
+  const name = rawName
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/đ/g, 'd')
-    .toLowerCase();
+    .replace(/Đ/g, 'd')
+    .toLowerCase()
+    .trim();
 
-  if (/rac|waste|trash/.test(name)) return 'waste';
-  if (/thang may|elevator|lift/.test(name)) return 'elevator';
-  if (/an toan|safety/.test(name)) return 'safety';
-  if (/cong|thoat nuoc|drain/.test(name)) return 'drain';
-  if (/ngap|nuoc|flood/.test(name)) return 'water';
-  if (/den|dien|light|electric/.test(name)) return 'light';
-  if (/cay|tree/.test(name)) return 'tree';
-  if (/duong|o ga|road|pothole|traffic/.test(name)) return 'road';
-  return 'generic';
+  if (/chay|lua|cuu hoa|fire|emergency|explosion/.test(name)) return 'fire';
+  if (/day cap|cap vien thong|day dien vong|wiring|cable|telecom/.test(name)) return 'cable';
+  if (/tieng on|on ao|khoi bui|o nhiem|noise|pollution|air|smoke/.test(name)) return 'pollution';
+  if (/bien bao|tin hieu|den giao thong|vach ke|signal|sign/.test(name)) return 'signal';
+  if (/via he|lan chiem|long duong|sidewalk|encroachment|pavement/.test(name)) return 'sidewalk';
+  if (/ngap|nuoc thai|nuoc ngap|ong nuoc|flood|flooding|wastewater/.test(name)) return 'water';
+  if (/cong tac|cong ranh|nap cong|mieng cong|ho ga|thoat nuoc|clogged drain|drain|manhole|sewer/.test(name)) return 'drain';
+  if (/tac duong|ket xe|un tac|traffic congestion|congestion|traffic jam/.test(name)) return 'traffic';
+  if (/rac|ve sinh|xa ban|waste|litter|trash|garbage/.test(name)) return 'waste';
+  if (/thang may|tien ich|nha cho|elevator|lift|facility/.test(name)) return 'elevator';
+  if (/an toan|an ninh|nguy hiem|public safety|safety|security/.test(name)) return 'safety';
+  if (/den duong|mat dien|den bi hu|chieu sang|streetlight|power|electric/.test(name)) return 'light';
+  if (/cay|canh cay|cong vien|tree|branch|park/.test(name)) return 'tree';
+  if (/duong hong|o ga|sut lun|mat duong|road|pothole/.test(name)) return 'road';
+  return 'other';
 }
 
-export default function TrafficSignIcon({ categoryName, size = 48 }: TrafficSignIconProps) {
-  const type = getTrafficSignType(categoryName);
-  const scale = size / 56;
-  const scaled = (value: number) => value * scale;
+const CATEGORY_SORT_RANK: Record<UrbanCategoryType, number> = {
+  road: 1,
+  light: 2,
+  water: 3,
+  drain: 4,
+  waste: 5,
+  tree: 6,
+  traffic: 7,
+  safety: 8,
+  sidewalk: 9,
+  signal: 10,
+  pollution: 11,
+  cable: 12,
+  fire: 13,
+  elevator: 14,
+  other: 99,
+};
+
+export function sortUrbanCategories<T extends { name?: string; label?: string }>(items: T[]): T[] {
+  return [...items].sort((a, b) => {
+    const typeA = detectUrbanCategoryType(a.name || a.label);
+    const typeB = detectUrbanCategoryType(b.name || b.label);
+    return (CATEGORY_SORT_RANK[typeA] ?? 50) - (CATEGORY_SORT_RANK[typeB] ?? 50);
+  });
+}
+
+export function getCategoryVisualConfig(categoryName?: string | null): CategoryVisualConfig {
+  const type = detectUrbanCategoryType(categoryName);
+  return VISUAL_MAP[type];
+}
+
+interface TrafficSignIconProps {
+  categoryName?: string | null;
+  size?: number;
+}
+
+export default function TrafficSignIcon({ categoryName, size = 44 }: TrafficSignIconProps) {
+  const config = getCategoryVisualConfig(categoryName);
+  const outerSize = size;
+  const innerSize = Math.round(size * 0.78);
+  const iconSize = Math.max(16, Math.round(size * 0.48));
+  const outerRadius = Math.round(outerSize * 0.32);
+  const innerRadius = Math.round(innerSize * 0.3);
+
+  const renderSymbol = () => {
+    // 1. Ùn tắc giao thông: Hình nhiều chiếc xe máy (Multiple Motorbikes)
+    if (config.type === 'traffic') {
+      const backBikeSize = Math.max(11, Math.round(size * 0.31));
+      const frontBikeSize = Math.max(15, Math.round(size * 0.41));
+      return (
+        <View style={{ width: innerSize, height: innerSize, alignItems: 'center', justifyContent: 'center' }}>
+          <MaterialCommunityIcons
+            name="motorbike"
+            size={backBikeSize}
+            color="#FB923C"
+            style={{
+              position: 'absolute',
+              top: Math.round(innerSize * 0.12),
+              left: Math.round(innerSize * 0.1),
+              opacity: 0.85,
+            }}
+          />
+          <MaterialCommunityIcons
+            name="motorbike"
+            size={backBikeSize}
+            color="#F97316"
+            style={{
+              position: 'absolute',
+              top: Math.round(innerSize * 0.14),
+              right: Math.round(innerSize * 0.08),
+              opacity: 0.9,
+            }}
+          />
+          <MaterialCommunityIcons
+            name="motorbike"
+            size={frontBikeSize}
+            color={config.iconColor}
+            style={{
+              marginTop: Math.round(innerSize * 0.22),
+            }}
+          />
+        </View>
+      );
+    }
+
+    // 2. Ngập nước & Nước thải: Hình giọt nước có mũi tên đi lên (Water drop + Rising arrow)
+    if (config.type === 'water') {
+      const dropSize = Math.max(15, Math.round(size * 0.44));
+      const arrowSize = Math.max(11, Math.round(size * 0.3));
+      return (
+        <View style={{ width: innerSize, height: innerSize, alignItems: 'center', justifyContent: 'center' }}>
+          <Ionicons
+            name="water"
+            size={dropSize}
+            color={config.iconColor}
+            style={{ marginRight: Math.round(innerSize * 0.14), marginTop: Math.round(innerSize * 0.06) }}
+          />
+          <View
+            style={[
+              styles.waterArrowBadge,
+              {
+                right: Math.round(innerSize * 0.08),
+                top: Math.round(innerSize * 0.12),
+                borderColor: config.innerBg,
+              },
+            ]}
+          >
+            <MaterialCommunityIcons name="arrow-up-bold" size={arrowSize} color="#0369A1" />
+          </View>
+        </View>
+      );
+    }
+
+    return <Ionicons name={config.icon} size={iconSize} color={config.iconColor} />;
+  };
 
   return (
-    <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ width: size, height: size }}>
+    <View
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      style={[
+        styles.outerBadge,
+        {
+          width: outerSize,
+          height: outerSize,
+          borderRadius: outerRadius,
+          backgroundColor: config.badgeBg,
+          borderColor: config.borderColor,
+        },
+      ]}
+    >
       <View
         style={[
-          styles.triangle,
+          styles.innerCircle,
           {
-            borderLeftWidth: scaled(28),
-            borderRightWidth: scaled(28),
-            borderBottomWidth: scaled(49),
-            borderBottomColor: '#E5483F',
+            width: innerSize,
+            height: innerSize,
+            borderRadius: innerRadius,
+            backgroundColor: config.innerBg,
           },
         ]}
-      />
-      <View
-        style={[
-          styles.triangle,
-          {
-            left: scaled(5),
-            top: scaled(5),
-            borderLeftWidth: scaled(23),
-            borderRightWidth: scaled(23),
-            borderBottomWidth: scaled(40),
-            borderBottomColor: '#FFD83D',
-          },
-        ]}
-      />
-      <View style={[styles.symbol, { left: scaled(9), top: scaled(24), width: scaled(38), height: scaled(18) }]}>
-        {type === 'road' && (
-          <>
-            <View style={[styles.roadBase, { width: scaled(31), height: scaled(5), top: scaled(9) }]} />
-            <View style={[styles.roadBump, { width: scaled(12), height: scaled(8), top: scaled(5) }]} />
-          </>
-        )}
-        {type === 'light' && (
-          <>
-            <View style={[styles.lightPole, { height: scaled(15), left: scaled(18), top: scaled(2) }]} />
-            <View style={[styles.lightArm, { width: scaled(12), left: scaled(18), top: scaled(2) }]} />
-            <View style={[styles.lightBulb, { left: scaled(27), top: scaled(3), width: scaled(5), height: scaled(4) }]} />
-          </>
-        )}
-        {type === 'water' && (
-          <>
-            <View style={[styles.wave, { width: scaled(25), left: scaled(6), top: scaled(4) }]} />
-            <View style={[styles.wave, { width: scaled(31), left: scaled(3), top: scaled(9) }]} />
-            <View style={[styles.wave, { width: scaled(25), left: scaled(6), top: scaled(14) }]} />
-          </>
-        )}
-        {type === 'drain' && (
-          <>
-            <View style={[styles.drainBase, { width: scaled(27), height: scaled(3), left: scaled(5), top: scaled(7) }]} />
-            <View style={[styles.drainSlot, { left: scaled(10), top: scaled(5) }]} />
-            <View style={[styles.drainSlot, { left: scaled(17), top: scaled(5) }]} />
-            <View style={[styles.drainSlot, { left: scaled(24), top: scaled(5) }]} />
-          </>
-        )}
-        {type === 'waste' && (
-          <>
-            <View style={[styles.binLid, { width: scaled(15), left: scaled(12), top: scaled(3) }]} />
-            <View style={[styles.binBody, { width: scaled(12), height: scaled(11), left: scaled(14), top: scaled(6) }]} />
-            <View style={[styles.binHandle, { left: scaled(17), top: scaled(1) }]} />
-          </>
-        )}
-        {type === 'tree' && (
-          <>
-            <View style={[styles.treeTop, { width: scaled(13), height: scaled(10), left: scaled(12), top: scaled(2) }]} />
-            <View style={[styles.treeTop, { width: scaled(13), height: scaled(10), left: scaled(21), top: scaled(2) }]} />
-            <View style={[styles.treeTrunk, { height: scaled(8), left: scaled(20), top: scaled(9) }]} />
-          </>
-        )}
-        {type === 'elevator' && (
-          <>
-            <View style={[styles.elevatorCabin, { width: scaled(15), height: scaled(17), left: scaled(11), top: scaled(1) }]} />
-            <View style={[styles.elevatorDoor, { height: scaled(13), left: scaled(18), top: scaled(3) }]} />
-            <View style={[styles.elevatorArrow, { left: scaled(3), top: scaled(5) }]} />
-            <View style={[styles.elevatorArrow, styles.elevatorArrowDown, { left: scaled(29), top: scaled(10) }]} />
-          </>
-        )}
-        {type === 'safety' && (
-          <>
-            <View style={[styles.safetyPersonHead, { width: scaled(6), height: scaled(6), left: scaled(16), top: scaled(1) }]} />
-            <View style={[styles.safetyPersonBody, { width: scaled(4), height: scaled(11), left: scaled(17), top: scaled(8) }]} />
-            <View style={[styles.safetyPersonArm, { width: scaled(15), left: scaled(11), top: scaled(11) }]} />
-            <View style={[styles.safetyPersonLeg, { width: scaled(14), left: scaled(12), top: scaled(17) }]} />
-          </>
-        )}
-        {type === 'generic' && (
-          <>
-            <View style={[styles.exclamationBar, { height: scaled(10), left: scaled(18), top: scaled(2) }]} />
-            <View style={[styles.exclamationDot, { left: scaled(17), top: scaled(14), width: scaled(4), height: scaled(4) }]} />
-          </>
-        )}
+      >
+        {renderSymbol()}
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  triangle: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    width: 0,
-    height: 0,
-    borderLeftColor: 'transparent',
-    borderRightColor: 'transparent',
-    borderStyle: 'solid',
-  },
-  symbol: {
-    position: 'absolute',
+  outerBadge: {
     alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
   },
-  roadBase: { position: 'absolute', left: 3, backgroundColor: '#20252A', borderRadius: 2 },
-  roadBump: { position: 'absolute', left: 13, backgroundColor: '#20252A', borderTopLeftRadius: 8, borderTopRightRadius: 8 },
-  lightPole: { position: 'absolute', width: 2, backgroundColor: '#20252A' },
-  lightArm: { position: 'absolute', height: 2, backgroundColor: '#20252A' },
-  lightBulb: { position: 'absolute', backgroundColor: '#20252A', borderRadius: 3 },
-  wave: { position: 'absolute', height: 2, backgroundColor: '#20252A', borderRadius: 2 },
-  drainBase: { position: 'absolute', backgroundColor: '#20252A' },
-  drainSlot: { position: 'absolute', width: 2, height: 7, backgroundColor: '#20252A' },
-  binLid: { position: 'absolute', height: 2, backgroundColor: '#20252A', borderRadius: 2 },
-  binBody: { position: 'absolute', borderWidth: 2, borderColor: '#20252A', borderBottomLeftRadius: 2, borderBottomRightRadius: 2 },
-  binHandle: { position: 'absolute', width: 5, height: 2, backgroundColor: '#20252A' },
-  treeTop: { position: 'absolute', backgroundColor: '#20252A', borderRadius: 8 },
-  treeTrunk: { position: 'absolute', width: 3, backgroundColor: '#20252A' },
-  elevatorCabin: { position: 'absolute', borderWidth: 2, borderColor: '#20252A', borderRadius: 2 },
-  elevatorDoor: { position: 'absolute', width: 1, backgroundColor: '#20252A' },
-  elevatorArrow: { position: 'absolute', width: 2, height: 7, backgroundColor: '#20252A' },
-  elevatorArrowDown: { transform: [{ rotate: '180deg' }] },
-  safetyPersonHead: { position: 'absolute', backgroundColor: '#20252A', borderRadius: 4 },
-  safetyPersonBody: { position: 'absolute', backgroundColor: '#20252A', borderRadius: 2 },
-  safetyPersonArm: { position: 'absolute', height: 2, backgroundColor: '#20252A' },
-  safetyPersonLeg: { position: 'absolute', height: 2, backgroundColor: '#20252A' },
-  exclamationBar: { position: 'absolute', width: 3, backgroundColor: '#20252A', borderRadius: 2 },
-  exclamationDot: { position: 'absolute', backgroundColor: '#20252A', borderRadius: 3 },
+  innerCircle: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  waterArrowBadge: {
+    position: 'absolute',
+    backgroundColor: '#E0F2FE',
+    borderRadius: 8,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });

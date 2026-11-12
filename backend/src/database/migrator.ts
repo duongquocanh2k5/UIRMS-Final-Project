@@ -112,6 +112,47 @@ function getMigrationFiles(): string[] {
     .sort();
 }
 
+async function syncLocalUploadsToDatabase(pool: Pool): Promise<void> {
+  const uploadsDir = path.resolve(process.cwd(), 'uploads', 'incidents');
+  if (!fs.existsSync(uploadsDir)) return;
+
+  const files = fs.readdirSync(uploadsDir).filter((f) => /\.(jpe?g|png|webp|gif)$/i.test(f));
+  if (files.length === 0) return;
+
+  const client = await pool.connect();
+  try {
+    for (const filename of files) {
+      const relativeUrl = `/uploads/incidents/${filename}`;
+      const match = await client.query(
+        `SELECT id FROM incident_images WHERE image_url = $1 LIMIT 1;`,
+        [relativeUrl]
+      );
+      if (match.rows.length > 0) {
+        const filePath = path.join(uploadsDir, filename);
+        const ext = path.extname(filename).toLowerCase();
+        const mime =
+          ext === '.png'
+            ? 'image/png'
+            : ext === '.webp'
+              ? 'image/webp'
+              : ext === '.gif'
+                ? 'image/gif'
+                : 'image/jpeg';
+        const dataUrl = `data:${mime};base64,${fs.readFileSync(filePath).toString('base64')}`;
+        await client.query(
+          `UPDATE incident_images SET image_url = $1 WHERE image_url = $2;`,
+          [dataUrl, relativeUrl]
+        );
+        logger.info(`✓ Synced local incident image to DB: ${filename}`);
+      }
+    }
+  } catch (error) {
+    logger.warn('Could not sync local incident uploads to database:', error as Error);
+  } finally {
+    client.release();
+  }
+}
+
 /**
  * Run migrations
  */
@@ -153,6 +194,8 @@ export async function runMigrations(): Promise<void> {
         throw error;
       }
     }
+
+    await syncLocalUploadsToDatabase(pool);
 
     logger.info('✓ All migrations completed successfully');
   } catch (error) {

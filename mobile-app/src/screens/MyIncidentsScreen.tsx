@@ -93,6 +93,7 @@ export default function MyIncidentsScreen({ navigation }: any) {
     const [filter, setFilter] = useState('all');
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
+    const [failedImages, setFailedImages] = useState<Record<string, boolean>>({});
 
     const loadIncidents = useCallback(async () => {
         if (!user) return;
@@ -156,6 +157,7 @@ export default function MyIncidentsScreen({ navigation }: any) {
 
     const renderIncident = ({ item }: { item: Incident }) => {
         const status = STATUS_COLORS[item.status] || STATUS_COLORS.pending;
+        const thumbUri = item.image_urls?.find((url) => Boolean(url) && !failedImages[url]);
         return (
             <View style={styles.card}>
                 <TouchableOpacity
@@ -163,8 +165,14 @@ export default function MyIncidentsScreen({ navigation }: any) {
                     onPress={() => navigation.navigate('IncidentDetail', { id: item.id })}
                     activeOpacity={0.85}
                 >
-                    {item.image_urls?.[0] ? (
-                        <Image source={{ uri: item.image_urls[0] }} style={styles.thumbnail} />
+                    {thumbUri ? (
+                        <Image
+                            source={{ uri: thumbUri }}
+                            style={styles.thumbnail}
+                            onError={() =>
+                                setFailedImages((prev) => ({ ...prev, [thumbUri]: true }))
+                            }
+                        />
                     ) : (
                         <View style={styles.thumbnailPlaceholder}>
                             <TrafficSignIcon categoryName={item.category_name || item.title} size={42} />
@@ -230,9 +238,9 @@ export default function MyIncidentsScreen({ navigation }: any) {
     return (
         <View style={styles.screen}>
             <View style={[styles.header, { paddingTop: Math.max(insets.top + 8, 16) }]}>
-                <View>
-                    <Text style={styles.headerTitle}>{t('Báo cáo của tôi', 'My Reports')}</Text>
-                    <Text style={styles.headerSubtitle}>
+                <View style={styles.headerTextWrap}>
+                    <Text style={styles.headerTitle} numberOfLines={1}>{t('Báo cáo của tôi', 'My Reports')}</Text>
+                    <Text style={styles.headerSubtitle} numberOfLines={1}>
                         {t('Theo dõi tiến độ xử lý các phản ánh đã gửi', 'Track the progress of your submitted reports')} ({incidents.length})
                     </Text>
                 </View>
@@ -310,6 +318,11 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'space-between',
     },
+    headerTextWrap: {
+        flex: 1,
+        minWidth: 0,
+        paddingRight: 12,
+    },
     headerTitle: { color: '#142532', fontSize: 20, fontWeight: '800', lineHeight: 28 },
     headerSubtitle: { color: '#64748B', fontSize: 11, marginTop: 2 },
     newReportBtn: {
@@ -320,6 +333,7 @@ const styles = StyleSheet.create({
         paddingVertical: 8,
         borderRadius: 10,
         gap: 4,
+        flexShrink: 0,
     },
     newReportBtnText: { color: '#FFF', fontSize: 12, fontWeight: '700' },
     filterScroll: { flexGrow: 0, backgroundColor: '#FFF' },

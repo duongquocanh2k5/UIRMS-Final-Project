@@ -11,22 +11,54 @@ const getAPIBaseURL = () => {
   if (Platform.OS === 'web') {
     return process.env.EXPO_PUBLIC_API_URL || 'http://localhost:5000/api';
   }
-  return process.env.EXPO_PUBLIC_API_URL || 'http://192.168.1.206:5000/api';
+  return process.env.EXPO_PUBLIC_API_URL || 'https://uirms-final-project.onrender.com/api';
 };
 
 const API_BASE_URL = getAPIBaseURL();
 const API_ORIGIN = API_BASE_URL.replace(/\/api\/?$/, '');
 
-const resolveImageUrl = (imageUrl: string) =>
-  imageUrl.startsWith('http') ? imageUrl : `${API_ORIGIN}${imageUrl}`;
+const resolveImageUrl = (imageUrl?: string | null): string => {
+  if (!imageUrl || typeof imageUrl !== 'string') return '';
+  const trimmed = imageUrl.trim();
+  if (!trimmed) return '';
+  if (
+    trimmed.startsWith('data:') ||
+    trimmed.startsWith('file:') ||
+    trimmed.startsWith('content:') ||
+    trimmed.startsWith('blob:')
+  ) {
+    return trimmed;
+  }
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+    return trimmed.replace(
+      /^https?:\/\/(localhost|127\.0\.0\.1|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+)(:\d+)?/i,
+      API_ORIGIN
+    );
+  }
+  return `${API_ORIGIN}${trimmed.startsWith('/') ? '' : '/'}${trimmed}`;
+};
 
 const normalizeIncidentImages = (data: any) => {
-  if (data?.image_urls) data.image_urls = data.image_urls.map(resolveImageUrl);
-  if (data?.images) {
-    data.images = data.images.map((image: any) => ({
-      ...image,
-      image_url: resolveImageUrl(image.image_url),
-    }));
+  if (!data) return data;
+  if (Array.isArray(data.image_urls)) {
+    data.image_urls = data.image_urls
+      .map((url: any) => resolveImageUrl(url))
+      .filter(Boolean);
+  }
+  if (Array.isArray(data.images)) {
+    data.images = data.images
+      .map((image: any) => ({
+        ...image,
+        image_url: resolveImageUrl(image?.image_url),
+      }))
+      .filter((image: any) => Boolean(image.image_url));
+  }
+  if (
+    (!Array.isArray(data.image_urls) || data.image_urls.length === 0) &&
+    Array.isArray(data.images) &&
+    data.images.length > 0
+  ) {
+    data.image_urls = data.images.map((image: any) => image.image_url).filter(Boolean);
   }
   return data;
 };
@@ -47,7 +79,7 @@ class ApiClient {
   constructor() {
     this.client = axios.create({
       baseURL: API_BASE_URL,
-      timeout: 10000,
+      timeout: 45000,
       headers: {
         'Content-Type': 'application/json',
       },
@@ -66,6 +98,15 @@ class ApiClient {
   }
 
   // ==================== Auth ====================
+  async warmupServer(): Promise<boolean> {
+    try {
+      await this.client.get('/health', { timeout: 45000 });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async register(
     phone: string,
     email: string,
@@ -175,6 +216,7 @@ class ApiClient {
     if (category_id) params.category_id = category_id;
 
     const response = await this.client.get('/incidents', { params });
+    response.data.data = response.data.data?.map(normalizeIncidentImages) || [];
     return response.data;
   }
 
@@ -199,16 +241,28 @@ class ApiClient {
       name: `incident-${Date.now()}.jpg`,
       type: 'image/jpeg',
     } as any);
-    const response = await this.client.post(`/incidents/${incidentId}/images`, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
+
+    const token = await AsyncStorage.getItem('authToken');
+    const response = await fetch(`${API_BASE_URL}/incidents/${incidentId}/images`, {
+      method: 'POST',
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: formData,
     });
-    return response.data;
+
+    const data = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new Error(data?.error || `Upload failed (${response.status})`);
+    }
+    return data;
   }
 
   async getNearbyIncidents(latitude: number, longitude: number, radius = 5000) {
     const response = await this.client.get('/incidents/search/nearby', {
       params: { latitude, longitude, radius },
     });
+    response.data.data = response.data.data?.map(normalizeIncidentImages) || [];
     return response.data;
   }
 

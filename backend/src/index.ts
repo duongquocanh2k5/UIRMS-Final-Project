@@ -11,30 +11,28 @@ import { logger } from './utils/logger';
 
 async function main(): Promise<void> {
   try {
-    // Test database connection (skip on failure for development)
-    logger.info('Connecting to database...');
-    try {
-      await testConnection();
-
-      // Run database migrations only if connection successful
-      logger.info('Running database migrations...');
-      await runMigrations();
-    } catch (dbError) {
-      logger.warn('⚠ Database connection failed - running in offline mode');
-      logger.warn('Some features may not be available');
-    }
-
-    // Create Express app
+    // Create Express app and listen immediately to minimize cold-start latency (e.g. on Render)
     const app = createApp();
-
-    // Start server
     const port = env.port;
+
     app.listen(port, '0.0.0.0', () => {
       logger.info(`✓ Server running on http://localhost:${port}`);
       logger.info(`✓ Environment: ${env.nodeEnv}`);
       logger.info(`✓ API available at http://localhost:${port}/api`);
       logger.info(`✓ Health check: http://localhost:${port}/api/health`);
     });
+
+    // Test database connection and run migrations asynchronously in background
+    logger.info('Connecting to database...');
+    try {
+      await testConnection();
+
+      logger.info('Running database migrations...');
+      await runMigrations();
+    } catch (dbError) {
+      logger.warn('⚠ Database connection failed - running in offline mode');
+      logger.warn('Some features may not be available');
+    }
   } catch (error) {
     logger.error('Failed to start server', error as Error);
     process.exit(1);

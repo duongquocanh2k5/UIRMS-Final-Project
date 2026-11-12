@@ -40,11 +40,9 @@
       "expo-image",
       "expo-web-browser",
       "expo-font",
-      "expo-status-bar"
+      "expo-location",
+      "expo-image-picker"
     ],
-    "experiments": {
-      "reactCompiler": true
-    },
     "extra": {
       "eas": {
         "projectId": "6686cb2b-f209-4c25-a624-13ea773b5165"

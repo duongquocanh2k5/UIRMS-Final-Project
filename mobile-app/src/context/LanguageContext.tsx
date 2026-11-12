@@ -15,15 +15,21 @@ const STORAGE_KEY = 'appLanguage';
 
 const CATEGORY_TRANSLATIONS: Array<{ aliases: string[]; vi: string; en: string }> = [
   { aliases: ['potholes', 'pothole', 'ổ gà', 'o ga'], vi: 'Ổ gà', en: 'Potholes' },
-  { aliases: ['road damage', 'đường hỏng'], vi: 'Đường hỏng', en: 'Road Damage' },
+  { aliases: ['road damage', 'đường hỏng', 'duong hong'], vi: 'Đường hỏng & Ổ gà', en: 'Road & Potholes' },
   { aliases: ['streetlight & power', 'streetlight and power', 'đèn đường & điện', 'mất điện', 'đèn đường', 'đèn bị hư'], vi: 'Đèn đường & Điện', en: 'Streetlight & Power' },
-  { aliases: ['traffic congestion', 'tắc đường'], vi: 'Tắc đường', en: 'Traffic Congestion' },
-  { aliases: ['waste & litter', 'waste and litter', 'rác thải', 'rác trên đường'], vi: 'Rác thải', en: 'Waste & Litter' },
-  { aliases: ['public safety', 'an toàn công cộng'], vi: 'An toàn công cộng', en: 'Public Safety' },
-  { aliases: ['fallen / damaged trees', 'fallen/damaged trees', 'cây cối', 'cây cối hư hỏng'], vi: 'Cây cối', en: 'Fallen / Damaged Trees' },
-  { aliases: ['flooding & wastewater', 'flooding and wastewater', 'ngập nước & nước thải', 'ngập nước', 'nước ngập', 'nước thải'], vi: 'Ngập nước & Nước thải', en: 'Flooding & Wastewater' },
-  { aliases: ['clogged drain', 'cống tắc'], vi: 'Cống tắc', en: 'Clogged Drain' },
-  { aliases: ['public facility / elevator', 'public facility/elevator', 'thang máy & tiện ích', 'thang máy'], vi: 'Thang máy & Tiện ích', en: 'Public Facility / Elevator' },
+  { aliases: ['traffic congestion', 'tắc đường', 'ùn tắc giao thông'], vi: 'Ùn tắc giao thông', en: 'Traffic Congestion' },
+  { aliases: ['waste & litter', 'waste and litter', 'rác thải', 'rác trên đường', 'rác thải & vệ sinh'], vi: 'Rác thải & Vệ sinh', en: 'Waste & Litter' },
+  { aliases: ['public safety', 'an toàn công cộng', 'an ninh & an toàn'], vi: 'An toàn công cộng', en: 'Public Safety' },
+  { aliases: ['fallen / damaged trees', 'fallen/damaged trees', 'cây cối', 'cây cối hư hỏng', 'cây xanh & công viên'], vi: 'Cây xanh & Công viên', en: 'Trees & Parks' },
+  { aliases: ['flooding & wastewater', 'flooding and wastewater', 'ngập nước & nước thải', 'ngập nước', 'nước ngập', 'nước thải'], vi: 'Ngập nước & Nước thải', en: 'Flooding & Water' },
+  { aliases: ['clogged drain', 'cống tắc', 'cống tắc & hố ga'], vi: 'Cống tắc & Hố ga', en: 'Drains & Manholes' },
+  { aliases: ['public facility / elevator', 'public facility/elevator', 'thang máy & tiện ích', 'thang máy', 'tiện ích công cộng'], vi: 'Tiện ích & Thang máy', en: 'Public Facilities' },
+  { aliases: ['sidewalk & encroachment', 'sidewalk and encroachment', 'vỉa hè & lấn chiếm', 'vỉa hè'], vi: 'Vỉa hè & Lấn chiếm', en: 'Sidewalk & Curb' },
+  { aliases: ['traffic signals & signs', 'traffic signals and signs', 'biển báo & đèn tín hiệu', 'biển báo giao thông'], vi: 'Biển báo & Tín hiệu', en: 'Signs & Signals' },
+  { aliases: ['noise & air pollution', 'noise and air pollution', 'tiếng ồn & khói bụi', 'tiếng ồn & ô nhiễm'], vi: 'Tiếng ồn & Khói bụi', en: 'Noise & Pollution' },
+  { aliases: ['overhead cables & wiring', 'overhead cables and wiring', 'dây cáp & dây điện võng', 'dây cáp viễn thông'], vi: 'Dây cáp & Dây điện', en: 'Cables & Wiring' },
+  { aliases: ['fire & emergency hazard', 'fire and emergency hazard', 'cháy nổ & khẩn cấp', 'nguy cơ cháy nổ'], vi: 'Cháy nổ & Khẩn cấp', en: 'Fire & Emergency' },
+  { aliases: ['other urban issues', 'other', 'khác', 'sự cố khác'], vi: 'Sự cố đô thị khác', en: 'Other Urban Issues' },
 ];
 
 const LanguageContext = createContext<LanguageContextValue | undefined>(undefined);

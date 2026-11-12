@@ -17,7 +17,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import { apiClient } from '../services/api';
-import TrafficSignIcon from '../components/TrafficSignIcon';
+import TrafficSignIcon, { sortUrbanCategories } from '../components/TrafficSignIcon';
 import LanguageToggle from '../components/LanguageToggle';
 
 interface Incident {
@@ -32,12 +32,21 @@ interface Incident {
 }
 
 const defaultCategories = [
-    { id: 3, label: 'Ổ gà', background: '#FDE7E7' },
-    { id: 1, label: 'Đèn đường', background: '#FFF2CC' },
-    { id: 2, label: 'Ngập nước', background: '#DCEAFE' },
-    { id: 4, label: 'Cống tắc', background: '#D9F6E9' },
+    { id: 1, label: 'Road Damage' },
+    { id: 2, label: 'Streetlight & Power' },
+    { id: 7, label: 'Flooding & Wastewater' },
+    { id: 9, label: 'Clogged Drain' },
+    { id: 4, label: 'Waste & Litter' },
+    { id: 6, label: 'Fallen / Damaged Trees' },
+    { id: 3, label: 'Traffic Congestion' },
+    { id: 5, label: 'Public Safety' },
+    { id: 10, label: 'Sidewalk & Encroachment' },
+    { id: 11, label: 'Traffic Signals & Signs' },
+    { id: 12, label: 'Noise & Air Pollution' },
+    { id: 13, label: 'Overhead Cables & Wiring' },
+    { id: 8, label: 'Public Facility / Elevator' },
+    { id: 15, label: 'Other Urban Issues' },
 ];
-const categoryColors = ['#FDE7E7', '#FFF2CC', '#DCEAFE', '#D9F6E9', '#EFE6FD', '#E2F5EA'];
 
 const statusLabels: Record<string, string> = {
     pending: 'Chờ xử lý',
@@ -88,6 +97,7 @@ export default function HomeScreen({ navigation }: any) {
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [hasLoadError, setHasLoadError] = useState(false);
+    const [failedImages, setFailedImages] = useState<Record<string, boolean>>({});
 
     useEffect(() => {
         const loadCategories = async () => {
@@ -95,11 +105,12 @@ export default function HomeScreen({ navigation }: any) {
                 const response = await apiClient.getCategories();
                 if (Array.isArray(response.data) && response.data.length > 0) {
                     setReportCategories(
-                        response.data.map((item, index) => ({
-                            id: item.id,
-                            label: item.name,
-                            background: categoryColors[index % categoryColors.length],
-                        }))
+                        sortUrbanCategories(
+                            response.data.map((item) => ({
+                                id: item.id,
+                                label: item.name,
+                            }))
+                        )
                     );
                 }
             } catch {
@@ -183,12 +194,21 @@ export default function HomeScreen({ navigation }: any) {
             >
                 {/* Top Greeting Bar */}
                 <View style={styles.topBar}>
-                    <View>
+                    <View style={styles.greetingBlock}>
                         <View style={styles.cityBadge}>
                             <Ionicons name="location" size={12} color="#0A9D96" />
-                            <Text style={styles.cityBadgeText}>{t('TP. Hồ Chí Minh · Đô thị số', 'Ho Chi Minh City · Digital City')}</Text>
+                            <Text style={styles.cityBadgeText} numberOfLines={1}>
+                                {t('TP. Hồ Chí Minh · Đô thị số', 'Ho Chi Minh City · Digital City')}
+                            </Text>
                         </View>
-                        <Text style={styles.greeting}>{t('Xin chào', 'Hello')}, {user?.full_name || t('Bạn', 'there')}!</Text>
+                        <Text
+                            style={styles.greeting}
+                            numberOfLines={1}
+                            adjustsFontSizeToFit
+                            minimumFontScale={0.8}
+                        >
+                            {t('Xin chào', 'Hello')}, {user?.full_name || t('Bạn', 'there')}!
+                        </Text>
                     </View>
                     <View style={styles.topActions}>
                         <LanguageToggle />
@@ -211,7 +231,7 @@ export default function HomeScreen({ navigation }: any) {
                 {/* Dashboard Summary Banner */}
                 <View style={styles.dashboardBanner}>
                     <View style={styles.dashboardHeaderRow}>
-                        <View>
+                        <View style={styles.dashboardHeaderTextWrap}>
                             <Text style={styles.dashboardTitle}>{t('Tổng quan phản ánh của bạn', 'Your Reports at a Glance')}</Text>
                             <Text style={styles.dashboardSubtitle}>
                                 {t('Cập nhật trực tiếp từ Trung tâm Điều hành UIRMS', 'Live updates from the UIRMS Operations Center')}
@@ -298,11 +318,12 @@ export default function HomeScreen({ navigation }: any) {
                     {reportCategories.map((category) => (
                         <TouchableOpacity
                             key={category.id}
-                            style={[styles.categoryItem, { width: 78, flexShrink: 0, marginRight: 12 }]}
-                            onPress={() => navigation.navigate('ReportIncident', { categoryId: category.id })}
+                            style={[styles.categoryItem, { width: 82, flexShrink: 0, marginRight: 12 }]}
+                            onPress={() => navigation.navigate('ReportIncident', { categoryId: category.id, categoryName: category.label })}
+                            activeOpacity={0.8}
                         >
-                            <View style={[styles.categoryIcon, { backgroundColor: category.background }]}>
-                                <TrafficSignIcon categoryName={category.label} size={44} />
+                            <View style={styles.categoryIcon}>
+                                <TrafficSignIcon categoryName={category.label} size={54} />
                             </View>
                             <Text style={styles.categoryLabel} numberOfLines={2}>
                                 {translateCategory(category.label)}
@@ -333,14 +354,21 @@ export default function HomeScreen({ navigation }: any) {
                 ) : (
                     visibleIncidents.map((incident) => {
                         const status = statusColors[incident.status] || statusColors.pending;
+                        const thumbUri = incident.image_urls?.find((url) => Boolean(url) && !failedImages[url]);
                         return (
                             <TouchableOpacity
                                 key={incident.id}
                                 style={styles.incidentCard}
                                 onPress={() => navigation.navigate('IncidentDetail', { id: incident.id })}
                             >
-                                {incident.image_urls?.[0] ? (
-                                    <Image source={{ uri: incident.image_urls[0] }} style={styles.incidentThumb} />
+                                {thumbUri ? (
+                                    <Image
+                                        source={{ uri: thumbUri }}
+                                        style={styles.incidentThumb}
+                                        onError={() =>
+                                            setFailedImages((prev) => ({ ...prev, [thumbUri]: true }))
+                                        }
+                                    />
                                 ) : (
                                     <View style={styles.incidentThumb}>
                                         <TrafficSignIcon
@@ -480,7 +508,12 @@ const styles = StyleSheet.create({
         justifyContent: 'space-between',
         marginBottom: 16,
     },
-    topActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    greetingBlock: {
+        flex: 1,
+        minWidth: 0,
+        paddingRight: 12,
+    },
+    topActions: { flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 0 },
     languageButton: { borderRadius: 18, borderWidth: 1, borderColor: '#BCE6E1', backgroundColor: '#FFF', paddingHorizontal: 9, paddingVertical: 8 },
     languageButtonText: { color: '#087F7A', fontSize: 11, fontWeight: '800' },
     cityBadge: {
@@ -489,7 +522,7 @@ const styles = StyleSheet.create({
         gap: 4,
         marginBottom: 4,
     },
-    cityBadgeText: { color: '#0A9D96', fontSize: 12, fontWeight: '700' },
+    cityBadgeText: { color: '#0A9D96', fontSize: 12, fontWeight: '700', flexShrink: 1 },
     greeting: { color: '#142532', fontSize: 22, fontWeight: '800' },
     avatarButton: {
         width: 44,
@@ -520,6 +553,11 @@ const styles = StyleSheet.create({
         alignItems: 'flex-start',
         marginBottom: 14,
     },
+    dashboardHeaderTextWrap: {
+        flex: 1,
+        minWidth: 0,
+        paddingRight: 10,
+    },
     dashboardTitle: { color: '#FFFFFF', fontSize: 14, fontWeight: '800' },
     dashboardSubtitle: { color: '#94A3B8', fontSize: 11, marginTop: 2 },
     dashboardAction: {
@@ -527,6 +565,7 @@ const styles = StyleSheet.create({
         paddingHorizontal: 10,
         paddingVertical: 5,
         borderRadius: 10,
+        flexShrink: 0,
     },
     dashboardActionText: { color: '#5EEAD4', fontSize: 11, fontWeight: '700' },
     statsRow: {
@@ -619,8 +658,8 @@ const styles = StyleSheet.create({
     incidentThumb: {
         width: 66,
         height: 66,
-        borderRadius: 12,
-        backgroundColor: '#E6F2F1',
+        borderRadius: 14,
+        backgroundColor: '#F8FAFC',
         alignItems: 'center',
         justifyContent: 'center',
         marginRight: 11,

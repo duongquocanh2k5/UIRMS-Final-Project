@@ -10,7 +10,7 @@ import { adminService } from '../services/admin.service';
 import { validatePaginationParams } from '../utils/validators';
 import { notificationService } from '../services/notification.service';
 import { incidentImageUpload } from '../middlewares/incidentUpload';
-import { unlink } from 'node:fs/promises';
+import { readFile, unlink } from 'node:fs/promises';
 
 export class AdminController {
   /**
@@ -98,11 +98,19 @@ export class AdminController {
     }
 
     try {
+      let imageUrl = `/uploads/incidents/${file.filename}`;
+      try {
+        const fileBuffer = await readFile(file.path);
+        const mimeType = file.mimetype || 'image/jpeg';
+        imageUrl = `data:${mimeType};base64,${fileBuffer.toString('base64')}`;
+      } catch {
+        // Fallback to static path if file read fails
+      }
       const saved = await adminService.addAdminIncidentImage(
         Number(req.params.incidentId),
         req.user!.id,
         req.user!.role,
-        `/uploads/incidents/${file.filename}`
+        imageUrl
       );
       if (!saved) {
         await unlink(file.path).catch(() => undefined);

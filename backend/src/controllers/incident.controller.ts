@@ -4,6 +4,7 @@
  */
 
 import { Request, Response } from 'express';
+import fs from 'node:fs';
 import { AuthRequest } from '../middlewares/auth.middleware';
 import { incidentService } from '../services/incident.service';
 import { HTTP_STATUS, ERROR_MESSAGES, SUCCESS_MESSAGES, PAGINATION } from '../config/constants';
@@ -132,7 +133,14 @@ export class IncidentController {
         return;
       }
 
-      const imageUrl = `/uploads/incidents/${file.filename}`;
+      let imageUrl = `/uploads/incidents/${file.filename}`;
+      try {
+        const fileBuffer = fs.readFileSync(file.path);
+        const mimeType = file.mimetype || 'image/jpeg';
+        imageUrl = `data:${mimeType};base64,${fileBuffer.toString('base64')}`;
+      } catch {
+        // Fallback to static path if file read fails
+      }
       const saved = await incidentService.addIncidentImage(incidentId, userId, imageUrl, file.path);
       if (!saved) {
         res.status(HTTP_STATUS.NOT_FOUND).json({ error: ERROR_MESSAGES.NOT_FOUND });

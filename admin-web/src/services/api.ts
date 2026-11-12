@@ -22,6 +22,15 @@ export interface AdminLoginData {
 
 export type AdminRole = 'super_admin' | 'manager' | 'technician';
 
+export interface AdminAIAnalysis {
+    suggested_category_id?: number | null;
+    confidence?: number | null;
+    label?: string | null;
+    tags?: string[];
+    severity_suggestion?: 'low' | 'medium' | 'high' | 'critical' | null;
+    summary?: string | null;
+}
+
 export interface AdminIncident {
     id: number;
     user_id?: number;
@@ -40,6 +49,7 @@ export interface AdminIncident {
     ai_confidence?: number | string | null;
     ai_suggested_category?: number | null;
     ai_suggested_category_name?: string | null;
+    ai_analysis?: AdminAIAnalysis | null;
     is_duplicate?: boolean;
     duplicate_of?: number | null;
     duplicate_of_title?: string | null;
@@ -59,6 +69,7 @@ export interface AdminIncidentImage {
     id: number;
     image_url: string;
     is_before: boolean;
+    ai_analysis?: AdminAIAnalysis | null;
     created_at: string;
 }
 
@@ -287,8 +298,17 @@ export interface DepartmentPayload {
 const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:5000/api').replace(/\/$/, '');
 const apiOrigin = API_BASE_URL.replace(/\/api$/, '');
 
+function resolveImageUrl(url: string): string {
+    if (!url) return '';
+    const trimmed = url.trim();
+    if (trimmed.startsWith('http') || trimmed.startsWith('data:') || trimmed.startsWith('blob:')) {
+        return trimmed;
+    }
+    return `${apiOrigin}${trimmed.startsWith('/') ? '' : '/'}${trimmed}`;
+}
+
 function normalizeImages<T extends { image_urls?: string[] }>(item: T) {
-    return item.image_urls ? { ...item, image_urls: item.image_urls.map((url) => url.startsWith('http') ? url : `${apiOrigin}${url}`) } : item;
+    return item.image_urls ? { ...item, image_urls: item.image_urls.map(resolveImageUrl).filter(Boolean) } : item;
 }
 
 function normalizeIncident(item: AdminIncident): AdminIncident {
@@ -297,7 +317,7 @@ function normalizeIncident(item: AdminIncident): AdminIncident {
         ...normalized,
         images: item.images?.map((image) => ({
             ...image,
-            image_url: image.image_url.startsWith('http') ? image.image_url : `${apiOrigin}${image.image_url}`,
+            image_url: resolveImageUrl(image.image_url),
         })),
     };
 }

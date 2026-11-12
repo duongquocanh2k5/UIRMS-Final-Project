@@ -19,8 +19,8 @@ import {
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import MapView, { Marker } from 'react-native-maps';
 import { apiClient } from '../services/api';
+import SafeMapView from '../components/SafeMapView';
 import { useLanguage } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext';
 
@@ -116,6 +116,7 @@ export default function IncidentDetailScreen({ route, navigation }: any) {
   const [incident, setIncident] = useState<IncidentDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedImage, setSelectedImage] = useState<ImagePreview | null>(null);
+  const [failedImages, setFailedImages] = useState<Record<string, boolean>>({});
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [editTitle, setEditTitle] = useState('');
   const [editDescription, setEditDescription] = useState('');
@@ -418,20 +419,15 @@ export default function IncidentDetailScreen({ route, navigation }: any) {
         </View>
 
         {coordinates && (
-          <MapView
+          <SafeMapView
             style={styles.locationMap}
-            initialRegion={{
-              ...coordinates,
-              latitudeDelta: 0.008,
-              longitudeDelta: 0.008,
-            }}
+            coordinates={coordinates}
+            markerTitle={t('Vị trí sự cố', 'Incident Location')}
             scrollEnabled={false}
             zoomEnabled={false}
             pitchEnabled={false}
             rotateEnabled={false}
-          >
-            <Marker coordinate={coordinates} title={t('Vị trí sự cố', 'Incident Location')} />
-          </MapView>
+          />
         )}
 
         <View style={[styles.infoRow, { marginTop: 8 }]}>
@@ -465,10 +461,25 @@ export default function IncidentDetailScreen({ route, navigation }: any) {
             {displayedBeforeImages.map((image) => (
               <TouchableOpacity
                 key={image.id}
-                onPress={() => setSelectedImage(image)}
+                onPress={() => {
+                  if (!failedImages[image.image_url]) setSelectedImage(image);
+                }}
                 activeOpacity={0.85}
               >
-                <Image source={{ uri: image.image_url }} style={styles.incidentImage} />
+                {failedImages[image.image_url] ? (
+                  <View style={[styles.incidentImage, styles.brokenImageBox]}>
+                    <Ionicons name="image-outline" size={28} color="#94A3B8" />
+                    <Text style={styles.brokenImageText}>{t('Ảnh không khả dụng', 'Image unavailable')}</Text>
+                  </View>
+                ) : (
+                  <Image
+                    source={{ uri: image.image_url }}
+                    style={styles.incidentImage}
+                    onError={() =>
+                      setFailedImages((prev) => ({ ...prev, [image.image_url]: true }))
+                    }
+                  />
+                )}
                 <View style={styles.imageCornerBadge}>
                   <Text style={styles.imageCornerText}>{t('TRƯỚC XỬ LÝ', 'BEFORE')}</Text>
                 </View>
@@ -490,10 +501,25 @@ export default function IncidentDetailScreen({ route, navigation }: any) {
             {resultImages.map((image) => (
               <TouchableOpacity
                 key={image.id}
-                onPress={() => setSelectedImage(image)}
+                onPress={() => {
+                  if (!failedImages[image.image_url]) setSelectedImage(image);
+                }}
                 activeOpacity={0.85}
               >
-                <Image source={{ uri: image.image_url }} style={styles.incidentImage} />
+                {failedImages[image.image_url] ? (
+                  <View style={[styles.incidentImage, styles.brokenImageBox]}>
+                    <Ionicons name="image-outline" size={28} color="#94A3B8" />
+                    <Text style={styles.brokenImageText}>{t('Ảnh không khả dụng', 'Image unavailable')}</Text>
+                  </View>
+                ) : (
+                  <Image
+                    source={{ uri: image.image_url }}
+                    style={styles.incidentImage}
+                    onError={() =>
+                      setFailedImages((prev) => ({ ...prev, [image.image_url]: true }))
+                    }
+                  />
+                )}
                 <View style={[styles.imageCornerBadge, { backgroundColor: '#16A34A' }]}>
                   <Text style={styles.imageCornerText}>{t('ĐÃ KHẮC PHỤC', 'RESOLVED')}</Text>
                 </View>
@@ -914,6 +940,21 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     resizeMode: 'cover',
     backgroundColor: '#e5edef',
+  },
+  brokenImageBox: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 8,
+    backgroundColor: '#F1F5F9',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  brokenImageText: {
+    color: '#64748B',
+    fontSize: 10,
+    fontWeight: '600',
+    marginTop: 4,
+    textAlign: 'center',
   },
   imageCornerBadge: {
     position: 'absolute',

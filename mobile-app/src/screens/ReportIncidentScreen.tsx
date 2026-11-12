@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
@@ -10,21 +10,134 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
-import MapView, { Marker } from 'react-native-maps';
 import { apiClient } from '../services/api';
-import TrafficSignIcon from '../components/TrafficSignIcon';
+import TrafficSignIcon, {
+    detectUrbanCategoryType,
+    getCategoryVisualConfig,
+    sortUrbanCategories,
+    type UrbanCategoryType,
+} from '../components/TrafficSignIcon';
+import SafeMapView from '../components/SafeMapView';
 import { useLanguage } from '../context/LanguageContext';
 
-const CATEGORIES = [
-    { id: 1, name: 'Đèn đường' },
-    { id: 2, name: 'Nước ngập' },
-    { id: 3, name: 'Ổ gà' },
-    { id: 4, name: 'Cống tắc' },
-    { id: 5, name: 'Rác thải' },
-    { id: 6, name: 'Khác' },
+interface CategoryItem {
+    id: number;
+    name: string;
+}
+
+const CATEGORIES: CategoryItem[] = [
+    { id: 1, name: 'Road Damage' },
+    { id: 2, name: 'Streetlight & Power' },
+    { id: 7, name: 'Flooding & Wastewater' },
+    { id: 9, name: 'Clogged Drain' },
+    { id: 4, name: 'Waste & Litter' },
+    { id: 6, name: 'Fallen / Damaged Trees' },
+    { id: 3, name: 'Traffic Congestion' },
+    { id: 5, name: 'Public Safety' },
+    { id: 10, name: 'Sidewalk & Encroachment' },
+    { id: 11, name: 'Traffic Signals & Signs' },
+    { id: 12, name: 'Noise & Air Pollution' },
+    { id: 13, name: 'Overhead Cables & Wiring' },
+    { id: 14, name: 'Fire & Emergency Hazard' },
+    { id: 8, name: 'Public Facility / Elevator' },
+    { id: 15, name: 'Other Urban Issues' },
 ];
+
+const QUICK_ISSUE_CHIPS: Record<UrbanCategoryType, Array<{ vi: string; en: string }>> = {
+    road: [
+        { vi: 'Ổ gà lớn gây nguy hiểm', en: 'Large hazardous pothole' },
+        { vi: 'Mặt đường sụt lún / nứt vỡ', en: 'Sunken or cracked road surface' },
+        { vi: 'Nắp hố ga bị mất / vênh', en: 'Missing or broken manhole cover' },
+        { vi: 'Đá dăm / vật cản rơi vãi trên đường', en: 'Debris or gravel spilled on road' },
+    ],
+    light: [
+        { vi: 'Đèn đường không sáng vào ban đêm', en: 'Streetlight out at night' },
+        { vi: 'Cột đèn chiếu sáng bị nghiêng / gãy', en: 'Leaning or damaged light pole' },
+        { vi: 'Đèn chiếu sáng nhấp nháy liên tục', en: 'Flickering streetlight' },
+        { vi: 'Tủ điện / dây điện hở nguy hiểm', en: 'Exposed electrical box or wire' },
+    ],
+    water: [
+        { vi: 'Đường ngập sâu sau mưa', en: 'Deep street flooding after rain' },
+        { vi: 'Vỡ đường ống cấp nước sạch', en: 'Burst water supply pipe' },
+        { vi: 'Nước thải tràn lên mặt đường bốc mùi', en: 'Foul wastewater overflowing on street' },
+        { vi: 'Ứ đọng nước lâu ngày không thoát', en: 'Standing water not draining' },
+    ],
+    drain: [
+        { vi: 'Miệng cống thoát nước bị rác bít kín', en: 'Storm drain blocked by trash' },
+        { vi: 'Mất lưới chắn rác / nắp cống', en: 'Missing drain grate or cover' },
+        { vi: 'Cống thoát nước trào ngược', en: 'Backflowing storm drain' },
+        { vi: 'Hố ga thoát nước sụt lún nguy hiểm', en: 'Collapsed drainage pit' },
+    ],
+    waste: [
+        { vi: 'Rác sinh hoạt tồn đọng lâu ngày', en: 'Uncollected household trash pile' },
+        { vi: 'Đổ trộm xà bần / phế thải xây dựng', en: 'Illegal construction debris dumping' },
+        { vi: 'Thùng rác công cộng quá tải / hư hỏng', en: 'Overflowing or broken public bin' },
+        { vi: 'Chất thải bừa bãi gây mất vệ sinh', en: 'Unsanitary littering in public area' },
+    ],
+    tree: [
+        { vi: 'Cây xanh gãy đổ chắn ngang đường', en: 'Fallen tree blocking the road' },
+        { vi: 'Cành cây khô có nguy cơ gãy rụng', en: 'Hazardous dead tree branch' },
+        { vi: 'Cây che khuất biển báo / đèn giao thông', en: 'Tree obscuring traffic sign or light' },
+        { vi: 'Rễ cây đội vỉa hè hư hỏng', en: 'Tree roots lifting sidewalk' },
+    ],
+    traffic: [
+        { vi: 'Ùn tắc giao thông nghiêm trọng kéo dài', en: 'Severe prolonged traffic jam' },
+        { vi: 'Xe đậu đỗ sai quy định gây kẹt xe', en: 'Illegal parking causing congestion' },
+        { vi: 'Rào chắn công trình cản trở lưu thông', en: 'Construction barrier blocking traffic' },
+        { vi: 'Xung đột giao thông tại nút giao', en: 'Intersection traffic bottleneck' },
+    ],
+    safety: [
+        { vi: 'Khu vực thiếu an toàn / nguy cơ tai nạn', en: 'Unsafe area with accident risk' },
+        { vi: 'Lan can cầu / hộ lan đường bộ bị hỏng', en: 'Damaged bridge railing or guardrail' },
+        { vi: 'Công trình thi công thiếu rào chắn cảnh báo', en: 'Unfenced construction hazard' },
+        { vi: 'Vật kiến trúc có nguy cơ sập đổ', en: 'Structure at risk of collapsing' },
+    ],
+    elevator: [
+        { vi: 'Thang máy cầu bộ hành ngưng hoạt động', en: 'Pedestrian bridge elevator out of service' },
+        { vi: 'Nhà chờ xe buýt hư hỏng / mất điện', en: 'Damaged or unlit bus shelter' },
+        { vi: 'Nhà vệ sinh công cộng xuống cấp', en: 'Degraded public restroom facility' },
+        { vi: 'Ghế đá / thiết bị công viên bị hỏng', en: 'Broken park bench or public equipment' },
+    ],
+    sidewalk: [
+        { vi: 'Gạch lát vỉa hè bong tróc / sụt lún', en: 'Broken or sunken sidewalk tiles' },
+        { vi: 'Lấn chiếm vỉa hè làm nơi buôn bán', en: 'Sidewalk blocked by street vendors' },
+        { vi: 'Đậu xe chiếm hết lối đi bộ', en: 'Vehicles parked across pedestrian walkway' },
+        { vi: 'Lối lên xuống cho người khuyết tật bị chắn', en: 'Wheelchair ramp blocked or damaged' },
+    ],
+    signal: [
+        { vi: 'Đèn tín hiệu giao thông bị hỏng / loạn nhịp', en: 'Malfunctioning traffic light signal' },
+        { vi: 'Biển báo giao thông bị gãy đổ / mờ chữ', en: 'Broken or faded traffic sign' },
+        { vi: 'Vạch kẻ đường / gờ giảm tốc bị mờ', en: 'Faded crosswalk or speed bump markings' },
+        { vi: 'Gương cầu lồi bị vỡ / lệch hướng', en: 'Broken or misaligned convex traffic mirror' },
+    ],
+    pollution: [
+        { vi: 'Karaoke / loa công suất lớn gây ồn quá giờ', en: 'Late-night loud karaoke or speaker noise' },
+        { vi: 'Công trình thi công gây bụi và ồn ban đêm', en: 'Construction dust and nighttime noise' },
+        { vi: 'Đốt rác / phế thải gây khói độc hại', en: 'Illegal trash burning causing toxic smoke' },
+        { vi: 'Xả khí thải / mùi hôi ra khu dân cư', en: 'Foul odor or emissions in residential area' },
+    ],
+    cable: [
+        { vi: 'Dây cáp viễn thông sà thấp ngang đường', en: 'Low-hanging telecom cable across street' },
+        { vi: 'Bó dây cáp đứt rơi xuống vỉa hè', en: 'Snapped utility cable hanging on sidewalk' },
+        { vi: 'Trụ đỡ dây cáp bị nghiêng nguy hiểm', en: 'Leaning utility pole with tangled wires' },
+        { vi: 'Dây cáp chằng chịt gây mất an toàn', en: 'Hazardous tangled overhead wiring' },
+    ],
+    fire: [
+        { vi: 'Phát hiện khói / cháy cỏ rác gần khu dân cư', en: 'Smoke or brush fire near residential area' },
+        { vi: 'Chập cháy trên cột điện / trạm biến áp', en: 'Sparking power pole or transformer' },
+        { vi: 'Trụ nước chữa cháy bị hư hỏng / rò rỉ', en: 'Damaged or leaking fire hydrant' },
+        { vi: 'Rò rỉ khí / hóa chất có mùi bất thường', en: 'Suspected gas or chemical leak' },
+    ],
+    other: [
+        { vi: 'Biển quảng cáo / pano có nguy cơ rơi đổ', en: 'Loose billboard or sign hazard' },
+        { vi: 'Động vật thả rông gây nguy hiểm trên đường', en: 'Stray animals causing traffic hazard' },
+        { vi: 'Bất cập hạ tầng đô thị cần khắc phục', en: 'General urban infrastructure issue' },
+        { vi: 'Vấn đề dân sinh khác tại khu vực', en: 'Other community or neighborhood issue' },
+    ],
+};
 
 const PRIORITIES = [
     { id: 'low', vi: 'Nhẹ', en: 'Low' },
@@ -32,15 +145,18 @@ const PRIORITIES = [
     { id: 'high', vi: 'Nghiêm trọng', en: 'High' },
 ];
 const DEFAULT_COORDINATES = { latitude: 10.7769, longitude: 106.7009 };
+const INITIAL_VISIBLE_CATEGORIES = 9;
 
 export default function ReportIncidentScreen({ navigation, route }: any) {
-    const { t, translateCategory } = useLanguage();
+    const { language, t, translateCategory } = useLanguage();
     const [title, setTitle] = useState('');
     const [description, setDescription] = useState('');
     const [location, setLocation] = useState('');
     const [district, setDistrict] = useState('');
-    const [categories, setCategories] = useState(CATEGORIES);
-    const [category, setCategory] = useState(String(route?.params?.categoryId || ''));
+    const [categories, setCategories] = useState<CategoryItem[]>(CATEGORIES);
+    const [category, setCategory] = useState(String(route?.params?.categoryId || CATEGORIES[0].id));
+    const [showAllCategories, setShowAllCategories] = useState(false);
+    const [categorySearch, setCategorySearch] = useState('');
     const [priority, setPriority] = useState('medium');
     const [imageUri, setImageUri] = useState<string | null>(null);
     const [coordinates, setCoordinates] = useState(DEFAULT_COORDINATES);
@@ -57,13 +173,20 @@ export default function ReportIncidentScreen({ navigation, route }: any) {
             const response = await apiClient.getCategories();
             const data = response.data;
             if (Array.isArray(data) && data.length > 0) {
-                setCategories(data.map((item) => ({ id: item.id, name: item.name })));
-                const requestedCategory = String(route?.params?.categoryId || '');
-                setCategory(
-                    data.some((item) => String(item.id) === requestedCategory)
-                        ? requestedCategory
-                        : String(data[0].id)
+                const apiItems: CategoryItem[] = sortUrbanCategories(
+                    data.map((item) => ({ id: item.id, name: item.name }))
                 );
+                setCategories(apiItems);
+                const requestedCategory = String(route?.params?.categoryId || '');
+                const matchedId = apiItems.some((item) => String(item.id) === requestedCategory)
+                    ? requestedCategory
+                    : String(apiItems[0].id);
+                setCategory(matchedId);
+
+                const selectedIndex = apiItems.findIndex((item) => String(item.id) === matchedId);
+                if (selectedIndex >= INITIAL_VISIBLE_CATEGORIES) {
+                    setShowAllCategories(true);
+                }
             }
         } catch {
             setCategories(CATEGORIES);
@@ -75,6 +198,32 @@ export default function ReportIncidentScreen({ navigation, route }: any) {
             );
         }
     };
+
+    const selectedCategoryItem = useMemo(
+        () => categories.find((item) => String(item.id) === category) || categories[0],
+        [categories, category]
+    );
+
+    const selectedCategoryType = useMemo(
+        () => detectUrbanCategoryType(selectedCategoryItem?.name),
+        [selectedCategoryItem]
+    );
+
+    const quickChips = useMemo(
+        () => QUICK_ISSUE_CHIPS[selectedCategoryType] || QUICK_ISSUE_CHIPS.other,
+        [selectedCategoryType]
+    );
+
+    const displayedCategories = useMemo(() => {
+        const q = categorySearch.trim().toLowerCase();
+        if (q) {
+            return categories.filter((item) => {
+                const translated = translateCategory(item.name).toLowerCase();
+                return item.name.toLowerCase().includes(q) || translated.includes(q);
+            });
+        }
+        return showAllCategories ? categories : categories.slice(0, INITIAL_VISIBLE_CATEGORIES);
+    }, [categories, categorySearch, showAllCategories, translateCategory]);
 
     const updateCoordinates = async (nextCoordinates: {
         latitude: number;
@@ -166,7 +315,7 @@ export default function ReportIncidentScreen({ navigation, route }: any) {
 
     const handleSubmit = async () => {
         if (!title.trim()) {
-            Alert.alert(t('Thiếu thông tin', 'Missing Information'), t('Vui lòng nhập tiêu đề sự cố.', 'Enter an incident title.'));
+            Alert.alert(t('Thiếu thông tin', 'Missing Information'), t('Vui lòng nhập hoặc chọn nhanh tiêu đề sự cố.', 'Enter or tap a quick suggestion for the incident title.'));
             return;
         }
         try {
@@ -219,29 +368,138 @@ export default function ReportIncidentScreen({ navigation, route }: any) {
                     </Text>
                 </View>
 
-                <Text style={styles.sectionLabel}>{t('Phân loại sự cố', 'Incident Category')}</Text>
-                <View style={styles.categoryGrid}>
-                    {categories.map((item) => (
+                <View style={styles.categoryHeaderRow}>
+                    <Text style={styles.sectionLabel}>
+                        {t('Phân loại sự cố đô thị', 'Urban Incident Category')} ({categories.length})
+                    </Text>
+                    {categories.length > INITIAL_VISIBLE_CATEGORIES && !categorySearch.trim() && (
                         <TouchableOpacity
-                            key={item.id}
-                            style={[
-                                styles.categoryCard,
-                                category === String(item.id) && styles.categoryCardActive,
-                            ]}
-                            onPress={() => setCategory(String(item.id))}
-                            disabled={loading}
+                            onPress={() => setShowAllCategories((prev) => !prev)}
+                            activeOpacity={0.75}
                         >
-                            <TrafficSignIcon categoryName={item.name} size={44} />
-                            <Text
-                                style={[
-                                    styles.categoryName,
-                                    category === String(item.id) && styles.categoryNameActive,
-                                ]}
-                            >
-                                {item.name === 'Khác' ? t('Khác', 'Other') : translateCategory(item.name)}
+                            <Text style={styles.expandCategoryLink}>
+                                {showAllCategories
+                                    ? t('Thu gọn ▴', 'Show less ▴')
+                                    : t(`Xem tất cả (${categories.length}) ▾`, `View all (${categories.length}) ▾`)}
                             </Text>
                         </TouchableOpacity>
-                    ))}
+                    )}
+                </View>
+
+                {showAllCategories && (
+                    <View style={styles.categorySearchBox}>
+                        <Ionicons name="search-outline" size={16} color="#64748B" style={{ marginRight: 6 }} />
+                        <TextInput
+                            value={categorySearch}
+                            onChangeText={setCategorySearch}
+                            placeholder={t('Tìm nhanh loại sự cố (ví dụ: vỉa hè, tiếng ồn, dây cáp...)', 'Filter categories (e.g., sidewalk, noise, cables...)')}
+                            placeholderTextColor="#94A3B8"
+                            style={styles.categorySearchInput}
+                        />
+                        {categorySearch.length > 0 && (
+                            <TouchableOpacity onPress={() => setCategorySearch('')}>
+                                <Ionicons name="close-circle" size={16} color="#94A3B8" />
+                            </TouchableOpacity>
+                        )}
+                    </View>
+                )}
+
+                <View style={styles.categoryGrid}>
+                    {displayedCategories.map((item) => {
+                        const isSelected = category === String(item.id);
+                        const visual = getCategoryVisualConfig(item.name);
+                        return (
+                            <TouchableOpacity
+                                key={item.id}
+                                style={[
+                                    styles.categoryCard,
+                                    isSelected && {
+                                        backgroundColor: visual.badgeBg,
+                                        borderColor: visual.iconColor,
+                                        borderWidth: 1.5,
+                                    },
+                                ]}
+                                onPress={() => setCategory(String(item.id))}
+                                disabled={loading}
+                                activeOpacity={0.8}
+                            >
+                                {isSelected && (
+                                    <View style={[styles.selectedCheckBadge, { backgroundColor: visual.iconColor }]}>
+                                        <Ionicons name="checkmark" size={10} color="#FFF" />
+                                    </View>
+                                )}
+                                <TrafficSignIcon categoryName={item.name} size={44} />
+                                <Text
+                                    style={[
+                                        styles.categoryName,
+                                        isSelected && { color: visual.iconColor, fontWeight: '800' },
+                                    ]}
+                                    numberOfLines={2}
+                                >
+                                    {item.name === 'Khác' ? t('Sự cố đô thị khác', 'Other Urban Issues') : translateCategory(item.name)}
+                                </Text>
+                            </TouchableOpacity>
+                        );
+                    })}
+                </View>
+
+                {categories.length > INITIAL_VISIBLE_CATEGORIES && !categorySearch.trim() && (
+                    <TouchableOpacity
+                        style={styles.expandButtonBar}
+                        onPress={() => setShowAllCategories((prev) => !prev)}
+                        activeOpacity={0.8}
+                    >
+                        <Ionicons
+                            name={showAllCategories ? 'chevron-up-circle-outline' : 'grid-outline'}
+                            size={16}
+                            color="#0A9D96"
+                        />
+                        <Text style={styles.expandButtonText}>
+                            {showAllCategories
+                                ? t('Thu gọn danh sách danh mục', 'Collapse category list')
+                                : t(
+                                      `Mở rộng thêm ${categories.length - INITIAL_VISIBLE_CATEGORIES} danh mục đô thị khác`,
+                                      `Show ${categories.length - INITIAL_VISIBLE_CATEGORIES} more urban categories`
+                                  )}
+                        </Text>
+                    </TouchableOpacity>
+                )}
+
+                {/* Quick Issue Suggestion Chips */}
+                <View style={styles.quickChipsSection}>
+                    <View style={styles.quickChipsHeader}>
+                        <Ionicons name="flash-outline" size={14} color="#0A9D96" />
+                        <Text style={styles.quickChipsTitle}>
+                            {t('Tình huống phổ biến — chạm để điền nhanh tiêu đề:', 'Common issues — tap to quick-fill title:')}
+                        </Text>
+                    </View>
+                    <View style={styles.quickChipsWrap}>
+                        {quickChips.map((chip, idx) => {
+                            const chipLabel = language === 'vi' ? chip.vi : chip.en;
+                            const isChipActive = title.trim() === chipLabel;
+                            return (
+                                <TouchableOpacity
+                                    key={idx}
+                                    style={[
+                                        styles.quickChip,
+                                        isChipActive && styles.quickChipActive,
+                                    ]}
+                                    onPress={() => setTitle(chipLabel)}
+                                    disabled={loading}
+                                    activeOpacity={0.75}
+                                >
+                                    <Text
+                                        style={[
+                                            styles.quickChipText,
+                                            isChipActive && styles.quickChipTextActive,
+                                        ]}
+                                    >
+                                        + {chipLabel}
+                                    </Text>
+                                </TouchableOpacity>
+                            );
+                        })}
+                    </View>
                 </View>
 
                 <Text style={styles.sectionLabel}>{t('Tiêu đề sự cố', 'Incident Title')}</Text>
@@ -249,7 +507,7 @@ export default function ReportIncidentScreen({ navigation, route }: any) {
                     style={styles.input}
                     value={title}
                     onChangeText={setTitle}
-                    placeholder={t('Ví dụ: Ổ gà lớn gây nguy hiểm', 'Example: A large pothole creating a hazard')}
+                    placeholder={t('Nhập tiêu đề hoặc chạm gợi ý phía trên...', 'Enter a title or tap a suggestion above...')}
                     placeholderTextColor="#A5B1B8"
                     editable={!loading}
                 />
@@ -266,7 +524,7 @@ export default function ReportIncidentScreen({ navigation, route }: any) {
                         <Image source={{ uri: imageUri }} style={styles.previewImage} />
                     ) : (
                         <>
-                            <Text style={styles.photoIcon}>▧</Text>
+                            <Ionicons name="camera-outline" size={28} color="#0CA29B" style={{ marginBottom: 5 }} />
                             <Text style={styles.photoTitle}>{t('Tải lên hoặc chụp ảnh trực tiếp', 'Upload or take a photo')}</Text>
                             <Text style={styles.photoHint}>
                                 {t('Ảnh giúp cơ quan xử lý và AI xác minh nhanh hơn', 'Photos help response teams and AI verify the incident faster')}
@@ -300,27 +558,13 @@ export default function ReportIncidentScreen({ navigation, route }: any) {
                     </TouchableOpacity>
                 </View>
                 <View style={styles.mapCard}>
-                    <MapView
+                    <SafeMapView
                         style={styles.map}
-                        initialRegion={{
-                            ...coordinates,
-                            latitudeDelta: 0.008,
-                            longitudeDelta: 0.008,
-                        }}
-                        region={{
-                            ...coordinates,
-                            latitudeDelta: 0.008,
-                            longitudeDelta: 0.008,
-                        }}
-                        onPress={(event) => void updateCoordinates(event.nativeEvent.coordinate)}
-                    >
-                        <Marker
-                            coordinate={coordinates}
-                            title={t('Vị trí sự cố', 'Incident Location')}
-                            draggable
-                            onDragEnd={(event) => void updateCoordinates(event.nativeEvent.coordinate)}
-                        />
-                    </MapView>
+                        coordinates={coordinates}
+                        markerTitle={t('Vị trí sự cố', 'Incident Location')}
+                        draggableMarker
+                        onCoordinateChange={(coords) => void updateCoordinates(coords)}
+                    />
                     <View style={styles.addressBar}>
                         <Text style={styles.pin}>⌖</Text>
                         <TextInput
@@ -393,6 +637,12 @@ const styles = StyleSheet.create({
     },
     title: { color: '#0F524F', fontSize: 16, fontWeight: '800' },
     step: { marginTop: 4, color: '#087F7A', fontSize: 11, fontWeight: '600' },
+    categoryHeaderRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 8,
+    },
     sectionLabel: {
         color: '#52646E',
         fontSize: 12,
@@ -400,38 +650,131 @@ const styles = StyleSheet.create({
         marginBottom: 8,
         letterSpacing: 0.2,
     },
+    expandCategoryLink: {
+        color: '#0A9D96',
+        fontSize: 12,
+        fontWeight: '700',
+        marginBottom: 8,
+    },
+    categorySearchBox: {
+        height: 40,
+        backgroundColor: '#FFF',
+        borderRadius: 10,
+        borderWidth: 1,
+        borderColor: '#DCE6EA',
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 11,
+        marginBottom: 10,
+    },
+    categorySearchInput: {
+        flex: 1,
+        fontSize: 12,
+        color: '#1E293B',
+        paddingVertical: 0,
+    },
     optional: { color: '#0A9D96', fontWeight: '600' },
     categoryGrid: {
         flexDirection: 'row',
         flexWrap: 'wrap',
         justifyContent: 'space-between',
-        marginBottom: 17,
+        marginBottom: 6,
     },
     categoryCard: {
         width: '31.5%',
-        minHeight: 84,
+        minHeight: 92,
         backgroundColor: '#FFF',
         borderColor: '#E5EDF0',
         borderWidth: 1,
-        borderRadius: 12,
+        borderRadius: 14,
         justifyContent: 'center',
         alignItems: 'center',
-        marginBottom: 8,
-        paddingVertical: 6,
+        marginBottom: 9,
+        paddingVertical: 8,
+        paddingHorizontal: 6,
+        position: 'relative',
     },
-    categoryCardActive: {
-        backgroundColor: '#EDFBF9',
-        borderColor: '#0BA39B',
-        borderWidth: 1.5,
+    selectedCheckBadge: {
+        position: 'absolute',
+        top: 6,
+        right: 6,
+        width: 16,
+        height: 16,
+        borderRadius: 8,
+        alignItems: 'center',
+        justifyContent: 'center',
     },
     categoryName: {
-        color: '#6A7B84',
-        fontSize: 10,
-        marginTop: 4,
+        color: '#475569',
+        fontSize: 10.5,
+        marginTop: 6,
         textAlign: 'center',
         fontWeight: '600',
+        lineHeight: 13.5,
     },
-    categoryNameActive: { color: '#087F7A', fontWeight: '800' },
+    expandButtonBar: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 6,
+        paddingVertical: 9,
+        paddingHorizontal: 14,
+        backgroundColor: '#EDFBF9',
+        borderRadius: 10,
+        borderWidth: 1,
+        borderColor: '#BCE6E1',
+        marginBottom: 16,
+    },
+    expandButtonText: {
+        color: '#087F7A',
+        fontSize: 12,
+        fontWeight: '700',
+    },
+    quickChipsSection: {
+        backgroundColor: '#FFFFFF',
+        borderRadius: 12,
+        padding: 12,
+        borderWidth: 1,
+        borderColor: '#E2EAED',
+        marginBottom: 16,
+    },
+    quickChipsHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 5,
+        marginBottom: 8,
+    },
+    quickChipsTitle: {
+        color: '#334155',
+        fontSize: 11.5,
+        fontWeight: '700',
+    },
+    quickChipsWrap: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 7,
+    },
+    quickChip: {
+        backgroundColor: '#F1F5F9',
+        borderWidth: 1,
+        borderColor: '#CBD5E1',
+        borderRadius: 16,
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+    },
+    quickChipActive: {
+        backgroundColor: '#0A9D96',
+        borderColor: '#0A9D96',
+    },
+    quickChipText: {
+        color: '#334155',
+        fontSize: 11,
+        fontWeight: '600',
+    },
+    quickChipTextActive: {
+        color: '#FFFFFF',
+        fontWeight: '700',
+    },
     input: {
         backgroundColor: '#FFF',
         borderColor: '#E2EAED',
@@ -456,7 +799,6 @@ const styles = StyleSheet.create({
         overflow: 'hidden',
         marginBottom: 16,
     },
-    photoIcon: { color: '#0CA29B', fontSize: 25, marginBottom: 5 },
     photoTitle: { color: '#334155', fontSize: 12, fontWeight: '700' },
     photoHint: { color: '#64748B', fontSize: 10, marginTop: 4 },
     previewImage: { width: '100%', height: '100%', resizeMode: 'cover' },

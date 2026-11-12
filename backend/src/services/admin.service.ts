@@ -214,11 +214,21 @@ export class AdminService {
                   'id', image.id,
                   'image_url', image.image_url,
                   'is_before', COALESCE((to_jsonb(image)->>'is_before')::boolean, true),
+                  'ai_analysis', to_jsonb(image)->'ai_analysis',
                   'created_at', image.created_at
                 ) ORDER BY image.created_at ASC)
                 FROM incident_images image
                 WHERE image.incident_id = i.id
               ), '[]') AS images,
+              (
+                SELECT to_jsonb(image)->'ai_analysis'
+                FROM incident_images image
+                WHERE image.incident_id = i.id
+                  AND to_jsonb(image)->'ai_analysis' IS NOT NULL
+                  AND to_jsonb(image)->'ai_analysis' <> 'null'::jsonb
+                ORDER BY image.created_at DESC
+                LIMIT 1
+              ) AS ai_analysis,
               COALESCE((SELECT json_agg(image_url ORDER BY created_at)
             FROM incident_images WHERE incident_id = i.id), '[]') AS image_urls,
               u.email AS user_email, u.phone AS user_phone, u.full_name AS user_name,
