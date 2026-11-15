@@ -63,6 +63,25 @@ router.post(
   (req, res) => authController.sendVerificationEmail(req, res)
 );
 
+// VNeID AI eKYC OCR for CCCD / VNeID screenshot
+router.post(
+  '/vneid-ekyc',
+  (req, res) => authController.vneidEkyc(req, res)
+);
+
+// VNeID Digital Identity Login / SSO
+router.post(
+  '/vneid-login',
+  (req, res) => authController.vneidLogin(req, res)
+);
+
+// VNeID Account Verification for logged-in user
+router.post(
+  '/vneid-verify',
+  authenticateToken,
+  (req, res) => authController.vneidVerify(req, res)
+);
+
 // Verify email
 router.post(
   '/verify-email',

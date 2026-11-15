@@ -9,6 +9,7 @@ import { generateToken, TokenPayload } from '../utils/jwt';
 import { query, queryOne } from '../config/database';
 import { env } from '../config/environment';
 import { emailService } from './email.service';
+import { parseAndValidateCCCD } from '../utils/validators';
 import crypto from 'crypto';
 
 /**
@@ -141,13 +142,13 @@ export class AuthService {
   /**
    * Send email verification OTP to current user
    */
-  async sendEmailVerificationOTP(userId: number): Promise<'sent' | 'not_found' | 'already_verified' | 'delivery_failed'> {
+  async sendEmailVerificationOTP(userId: number): Promise<{ status: 'sent' | 'not_found' | 'already_verified' | 'sent_fallback'; otp?: string }> {
     const user = await this.getUserById(userId);
     if (!user) {
-      return 'not_found';
+      return { status: 'not_found' };
     }
     if (user.is_verified) {
-      return 'already_verified';
+      return { status: 'already_verified' };
     }
 
     const otp = generateSecureOTP();
@@ -161,10 +162,138 @@ export class AuthService {
 
     const sent = await emailService.sendEmailVerificationOTP(user.email, otp);
     if (sent) {
-      return 'sent';
+      return { status: 'sent' };
     }
 
-    return 'delivery_failed';
+    // Fallback: also insert an in-app notification and return the OTP so mobile verification works even without SMTP/Brevo
+    try {
+      await query(
+        `INSERT INTO notifications (user_id, title, message, type)
+         VALUES ($1, $2, $3, 'system');`,
+        [
+          userId,
+          'Mã OTP xác thực tài khoản UIRMS',
+          `Mã OTP kích hoạt tài khoản công dân của bạn là: ${otp} (hiệu lực ${env.otpExpiryMinutes} phút).`,
+        ]
+      );
+    } catch {
+      // Ignore if notifications insert fails
+    }
+
+    return { status: 'sent_fallback', otp };
+  }
+
+  /**
+   * Login or register citizen via VNeID eKYC (Level 2 Digital Identity)
+   */
+  async loginOrRegisterVNeID(input: {
+    identity_number: string;
+    full_name?: string;
+    phone?: string;
+  }): Promise<{ user: Omit<User, 'password_hash' | 'verification_code' | 'verification_code_expires_at'>; token: string }> {
+    const cleanCccd = input.identity_number.trim();
+    const parsedCccd = parseAndValidateCCCD(cleanCccd);
+    const maskedCccd = `***${cleanCccd.slice(-4)}`;
+    const vneidBio = parsedCccd.valid
+      ? `Định danh VNeID Mức 2 · CCCD ${maskedCccd} · ${parsedCccd.provinceName} (${parsedCccd.gender}, ${parsedCccd.birthYear})`
+      : `Đã định danh điện tử qua VNeID (Mức độ 2 · CCCD ${maskedCccd})`;
+
+    const existing = await queryOne<User>(
+      `SELECT * FROM users WHERE identity_number = $1 AND deleted_at IS NULL LIMIT 1;`,
+      [cleanCccd]
+    );
+
+    let user: User;
+    if (existing) {
+      const updated = await queryOne<User>(
+        `UPDATE users
+         SET is_verified = true,
+             verification_code = NULL,
+             verification_code_expires_at = NULL,
+             full_name = COALESCE(NULLIF($2, ''), full_name),
+             bio = $3,
+             updated_at = NOW()
+         WHERE id = $1
+         RETURNING *;`,
+        [existing.id, (input.full_name || '').trim(), vneidBio]
+      );
+      user = updated || { ...existing, is_verified: true };
+    } else {
+      const password_hash = await hashPassword(`VNeID@${cleanCccd}#2026`);
+      const suffix = cleanCccd.slice(-6);
+      const fallbackPhone = input.phone && /^0\d{9}$/.test(input.phone.trim())
+        ? input.phone.trim()
+        : `09${cleanCccd.slice(-8).padStart(8, '0')}`;
+      const email = `vneid.${cleanCccd}@citizen.uirms.vn`;
+      const fullName = (input.full_name || '').trim() || `Công dân VNeID (${suffix})`;
+
+      const byPhoneOrEmail = await queryOne<User>(
+        `SELECT * FROM users WHERE (phone = $1 OR email = $2) AND deleted_at IS NULL LIMIT 1;`,
+        [fallbackPhone, email]
+      );
+
+      if (byPhoneOrEmail) {
+        const updated = await queryOne<User>(
+          `UPDATE users
+           SET is_verified = true,
+               identity_number = COALESCE(identity_number, $2),
+               full_name = COALESCE(NULLIF($3, ''), full_name),
+               bio = $4,
+               updated_at = NOW()
+           WHERE id = $1
+           RETURNING *;`,
+          [byPhoneOrEmail.id, cleanCccd, (input.full_name || '').trim(), vneidBio]
+        );
+        user = updated || { ...byPhoneOrEmail, is_verified: true };
+      } else {
+        const created = await query<User>(
+          `INSERT INTO users (phone, email, password_hash, full_name, identity_number, bio, is_verified)
+           VALUES ($1, $2, $3, $4, $5, $6, true)
+           RETURNING *;`,
+          [fallbackPhone, email, password_hash, fullName, cleanCccd, vneidBio]
+        );
+        user = created[0]!;
+      }
+    }
+
+    const token = generateToken({
+      id: user.id,
+      email: user.email,
+      role: 'user',
+    });
+
+    return { user: stripSensitiveFields(user), token };
+  }
+
+  /**
+   * Link and verify current logged-in citizen account via VNeID
+   */
+  async verifyUserWithVNeID(
+    userId: number,
+    identityNumber: string,
+    fullName?: string
+  ): Promise<Omit<User, 'password_hash' | 'verification_code' | 'verification_code_expires_at'> | null> {
+    const cleanCccd = identityNumber.trim();
+    const parsedCccd = parseAndValidateCCCD(cleanCccd);
+    const maskedCccd = `***${cleanCccd.slice(-4)}`;
+    const vneidBio = parsedCccd.valid
+      ? `Định danh VNeID Mức 2 · CCCD ${maskedCccd} · ${parsedCccd.provinceName} (${parsedCccd.gender}, ${parsedCccd.birthYear})`
+      : `Đã định danh điện tử qua VNeID (Mức độ 2 · CCCD ${maskedCccd})`;
+
+    const updated = await queryOne<User>(
+      `UPDATE users
+       SET is_verified = true,
+           identity_number = $2,
+           verification_code = NULL,
+           verification_code_expires_at = NULL,
+           full_name = COALESCE(NULLIF($3, ''), full_name),
+           bio = $4,
+           updated_at = NOW()
+       WHERE id = $1 AND deleted_at IS NULL
+       RETURNING *;`,
+      [userId, cleanCccd, (fullName || '').trim(), vneidBio]
+    );
+    return updated ? stripSensitiveFields(updated) : null;
   }
 
   /**

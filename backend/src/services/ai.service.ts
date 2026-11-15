@@ -13,6 +13,8 @@ export interface ChatMessage {
   text: string;
 }
 
+export type AIVerificationStatus = 'MATCH' | 'CATEGORY_MISMATCH' | 'UNRELATED_OR_SPAM';
+
 export interface AIAnalysisResult {
   suggested_category_id: number | null;
   confidence: number;
@@ -20,6 +22,10 @@ export interface AIAnalysisResult {
   tags: string[];
   severity_suggestion: 'low' | 'medium' | 'high' | 'critical';
   summary: string;
+  verification_status?: AIVerificationStatus;
+  verification_reason?: string;
+  verification_reason_vi?: string;
+  what_is_in_image?: string;
 }
 
 interface IncidentCategory {
@@ -39,10 +45,11 @@ interface RecentUserIncident {
 }
 
 const GEMINI_MODELS = [
-  'gemini-2.5-flash',
-  'gemini-2.0-flash',
+  'gemini-3.5-flash',
+  'gemini-3.8-flash',
   'gemini-flash-latest',
-  'gemini-1.5-flash',
+  'gemini-3.1-flash-lite',
+  'gemini-flash-lite-latest',
 ] as const;
 
 const STATUS_LABELS: Record<string, string> = {
@@ -295,6 +302,25 @@ function buildSmartLocalReply(
   };
 }
 
+function detectImageMimeTypeFromBuffer(buffer: Buffer, fallbackMimeType: string): string {
+  if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
+    return 'image/jpeg';
+  }
+  if (
+    buffer.length >= 4 &&
+    buffer[0] === 0x89 &&
+    buffer[1] === 0x50 &&
+    buffer[2] === 0x4e &&
+    buffer[3] === 0x47
+  ) {
+    return 'image/png';
+  }
+  if (buffer.length >= 12 && buffer.subarray(0, 4).toString('ascii') === 'RIFF' && buffer.subarray(8, 12).toString('ascii') === 'WEBP') {
+    return 'image/webp';
+  }
+  return fallbackMimeType;
+}
+
 export class AIService {
   async chatWithAssistant(
     userId: number,
@@ -427,10 +453,11 @@ export class AIService {
   }
 
   async analyzeIncidentImage(
-    localFilePath: string,
+    imageSource: string | { buffer: Buffer; mimeType: string },
     title: string,
     description: string | undefined,
-    categories: IncidentCategory[]
+    categories: IncidentCategory[],
+    selectedCategoryName?: string
   ): Promise<AIAnalysisResult | null> {
     const apiKey = getCleanApiKey();
     if (!apiKey) {
@@ -438,16 +465,29 @@ export class AIService {
     }
 
     try {
-      const image = await fs.promises.readFile(localFilePath);
+      const image =
+        typeof imageSource === 'string'
+          ? await fs.promises.readFile(imageSource)
+          : imageSource.buffer;
+      const rawMimeType =
+        typeof imageSource === 'string'
+          ? getImageMimeType(imageSource)
+          : imageSource.mimeType;
+      const mimeType = detectImageMimeTypeFromBuffer(image, rawMimeType);
       const categoryList = categories.map(({ id, name }) => ({ id, name }));
       const prompt = [
-        'Analyze the urban infrastructure incident shown in the image using the resident-provided details.',
-        'Respond in concise, clear, and courteous professional English. Keep the label, tags, and summary in English.',
+        'Analyze the urban infrastructure incident shown in the image and cross-check it against the resident-reported details.',
+        'Respond in concise, clear, and courteous professional English for label, tags, summary, verification_reason, and what_is_in_image. Also provide verification_reason_vi in natural, concise Vietnamese.',
         `Valid categories (select only an ID from this list, or null if none apply): ${JSON.stringify(categoryList)}`,
+        `Resident-selected category: ${selectedCategoryName || 'Not specified'}`,
         `Title: ${title}`,
         `Description: ${description || 'No description provided'}`,
+        'Cross-check rules for verification_status:',
+        '- "MATCH": The photo clearly depicts an urban infrastructure / public safety incident consistent with the resident-selected category and description.',
+        '- "CATEGORY_MISMATCH": The photo shows a real urban infrastructure issue, but it belongs to a different category than the resident-selected category.',
+        '- "UNRELATED_OR_SPAM": The photo is unrelated to urban infrastructure (e.g., selfie, food, meme, blank/dark screen, indoor pet, random product) or clearly contradicts the report.',
         'Return exactly one valid JSON object with this structure:',
-        '{"suggested_category_id": number | null, "confidence": number from 0.0 to 1.0, "label": string, "tags": string[], "severity_suggestion": "low" | "medium" | "high" | "critical", "summary": string}',
+        '{"suggested_category_id": number | null, "confidence": number from 0.0 to 1.0, "label": string, "tags": string[], "severity_suggestion": "low" | "medium" | "high" | "critical", "summary": string, "verification_status": "MATCH" | "CATEGORY_MISMATCH" | "UNRELATED_OR_SPAM", "what_is_in_image": string, "verification_reason": string, "verification_reason_vi": string}',
         'Assess severity based on risk and impact. Do not infer details that are not visible in the image.',
       ].join('\n');
 
@@ -457,7 +497,7 @@ export class AIService {
             parts: [
               {
                 inline_data: {
-                  mime_type: getImageMimeType(localFilePath),
+                  mime_type: mimeType,
                   data: image.toString('base64'),
                 },
               },
@@ -492,6 +532,22 @@ export class AIService {
           : null;
       const confidence = Math.round(Math.max(0, Math.min(1, parsed.confidence)) * 100) / 100;
 
+      const validStatuses: AIVerificationStatus[] = ['MATCH', 'CATEGORY_MISMATCH', 'UNRELATED_OR_SPAM'];
+      let verificationStatus: AIVerificationStatus = validStatuses.includes(parsed.verification_status as AIVerificationStatus)
+        ? (parsed.verification_status as AIVerificationStatus)
+        : 'MATCH';
+
+      if (!validStatuses.includes(parsed.verification_status as AIVerificationStatus)) {
+        if (suggestedCategoryId === null) {
+          verificationStatus = 'UNRELATED_OR_SPAM';
+        } else if (
+          selectedCategoryName &&
+          categories.find((c) => c.id === suggestedCategoryId)?.name !== selectedCategoryName
+        ) {
+          verificationStatus = 'CATEGORY_MISMATCH';
+        }
+      }
+
       return {
         suggested_category_id: suggestedCategoryId,
         confidence,
@@ -499,6 +555,12 @@ export class AIService {
         tags: parsed.tags,
         severity_suggestion: severity as AIAnalysisResult['severity_suggestion'],
         summary: parsed.summary,
+        verification_status: verificationStatus,
+        what_is_in_image: typeof parsed.what_is_in_image === 'string' ? parsed.what_is_in_image : parsed.label,
+        verification_reason: typeof parsed.verification_reason === 'string' ? parsed.verification_reason : parsed.summary,
+        ...(typeof parsed.verification_reason_vi === 'string'
+          ? { verification_reason_vi: parsed.verification_reason_vi }
+          : {}),
       };
     } catch (error) {
       console.error('AI image analysis error:', error);
@@ -512,6 +574,88 @@ export class AIService {
 
   async checkDuplicates(_title: string, _description: string): Promise<number[]> {
     return [];
+  }
+
+  /**
+   * AI eKYC OCR for Vietnamese Chip-based CCCD / Căn cước or VNeID App Screenshot
+   */
+  async extractVNeIDOrCCCDFromImage(
+    imageBase64: string,
+    rawMimeType = 'image/jpeg'
+  ): Promise<{
+    is_valid_document: boolean;
+    document_type: 'CCCD_CHIP' | 'VNEID_APP' | 'INVALID';
+    identity_number: string;
+    full_name: string;
+    date_of_birth?: string;
+    gender?: string;
+    place_of_residence?: string;
+    reason_vi?: string;
+  } | null> {
+    const apiKey = getCleanApiKey();
+    if (!apiKey) {
+      return null;
+    }
+
+    try {
+      const cleanedBase64 = imageBase64.replace(/^data:image\/[a-zA-Z0-9+.-]+;base64,/, '').trim();
+      const buffer = Buffer.from(cleanedBase64, 'base64');
+      const mimeType = detectImageMimeTypeFromBuffer(buffer, rawMimeType);
+
+      const prompt = [
+        'You are an eKYC OCR engine for Vietnamese National Digital Identity (VNeID / Thẻ Căn cước công dân gắn chip / Thẻ Căn cước).',
+        'Examine the image and determine whether it is a valid Vietnamese Citizen ID card (CCCD / Căn cước) or a VNeID mobile app identity screen.',
+        'Extract the exact 12-digit personal identification number (Số định danh cá nhân / Số CCCD) and the citizen full name in Vietnamese with proper diacritics (Họ và tên).',
+        'Also extract date_of_birth (DD/MM/YYYY), gender (Nam or Nữ), and place_of_residence (Nơi thường trú / Quê quán) if visible.',
+        'If the image is NOT a Vietnamese CCCD card or VNeID screen, or if the 12-digit number is unreadable, set is_valid_document to false and document_type to "INVALID", and explain why in Vietnamese in reason_vi.',
+        'Return ONLY one valid JSON object matching this exact schema:',
+        '{"is_valid_document": boolean, "document_type": "CCCD_CHIP" | "VNEID_APP" | "INVALID", "identity_number": "12 digits or empty string", "full_name": "Full Vietnamese Name or empty string", "date_of_birth": "DD/MM/YYYY or empty", "gender": "Nam" | "Nữ" | "", "place_of_residence": "string", "reason_vi": "short explanation in Vietnamese"}',
+      ].join('\n');
+
+      const responseText = await callGeminiGenerateContent(
+        apiKey,
+        {
+          contents: [
+            {
+              parts: [
+                {
+                  inline_data: {
+                    mime_type: mimeType,
+                    data: cleanedBase64,
+                  },
+                },
+                { text: prompt },
+              ],
+            },
+          ],
+          generationConfig: { responseMimeType: 'application/json' },
+        },
+        20000
+      );
+
+      if (!responseText) {
+        return null;
+      }
+
+      const parsed = JSON.parse(stripMarkdownCodeFence(responseText));
+      const digitsOnly = String(parsed.identity_number || '').replace(/\D/g, '');
+      return {
+        is_valid_document: Boolean(parsed.is_valid_document) && /^\d{12}$/.test(digitsOnly),
+        document_type:
+          parsed.document_type === 'CCCD_CHIP' || parsed.document_type === 'VNEID_APP'
+            ? parsed.document_type
+            : 'INVALID',
+        identity_number: digitsOnly,
+        full_name: String(parsed.full_name || '').trim(),
+        date_of_birth: String(parsed.date_of_birth || '').trim(),
+        gender: String(parsed.gender || '').trim(),
+        place_of_residence: String(parsed.place_of_residence || '').trim(),
+        reason_vi: String(parsed.reason_vi || '').trim(),
+      };
+    } catch (error) {
+      console.error('VNeID eKYC OCR error:', error);
+      return null;
+    }
   }
 }
 

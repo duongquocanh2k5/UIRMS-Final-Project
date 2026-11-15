@@ -65,12 +65,16 @@ export default function Incidents() {
     const [searchParams, setSearchParams] = useSearchParams();
     const routeSearch = searchParams.get('search') || '';
     const routeQuick = (searchParams.get('quick') as 'all' | 'unassigned' | 'sla' | null) || 'all';
+    const rawRouteStatus = searchParams.get('status') as AdminIncident['status'] | null;
+    const rawRoutePriority = searchParams.get('priority') as AdminIncident['priority'] | null;
+    const routeStatus: IncidentFilters['status'] = rawRouteStatus && statusMap[rawRouteStatus] ? statusMap[rawRouteStatus] : 'Tất cả';
+    const routePriority: IncidentFilters['priority'] = rawRoutePriority && priorityMap[rawRoutePriority] ? priorityMap[rawRoutePriority] : 'Tất cả';
     const { categories: categoryData, error: categoryError } = useCategories();
     const categories = categoryData.filter((category) => category.is_active).map((category) => category.name);
     const [incidents, setIncidents] = useState<Incident[]>([]);
     const [quickFilter, setQuickFilter] = useState<'all' | 'unassigned' | 'sla'>(routeQuick);
-    const [filters, setFilters] = useState({ ...defaultFilters, search: routeSearch });
-    const [appliedFilters, setAppliedFilters] = useState({ ...defaultFilters, search: routeSearch });
+    const [filters, setFilters] = useState({ ...defaultFilters, search: routeSearch, status: routeStatus, priority: routePriority });
+    const [appliedFilters, setAppliedFilters] = useState({ ...defaultFilters, search: routeSearch, status: routeStatus, priority: routePriority });
     const [selectedIds, setSelectedIds] = useState<string[]>([]);
     const [page, setPage] = useState(1);
     const [total, setTotal] = useState(0);
@@ -109,14 +113,14 @@ export default function Incidents() {
     }, [loadIncidents]);
     useEffect(() => {
         const timer = window.setTimeout(() => {
-            setFilters((current) => ({ ...current, search: routeSearch }));
-            setAppliedFilters((current) => ({ ...current, search: routeSearch }));
+            setFilters((current) => ({ ...current, search: routeSearch, status: routeStatus, priority: routePriority }));
+            setAppliedFilters((current) => ({ ...current, search: routeSearch, status: routeStatus, priority: routePriority }));
             setQuickFilter(routeQuick);
             setPage(1);
             setSelectedIds([]);
         }, 0);
         return () => window.clearTimeout(timer);
-    }, [routeSearch, routeQuick]);
+    }, [routeSearch, routeQuick, routeStatus, routePriority]);
 
     const displayedIncidents = useMemo(() => {
         if (quickFilter === 'unassigned') return incidents.filter((item) => item.isUnassigned);

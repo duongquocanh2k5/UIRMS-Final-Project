@@ -1,6 +1,6 @@
 import { AlertTriangle, ArrowLeft, Bot, CheckCircle2, Clock3, MapPin, RefreshCw, Sparkles, Star } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
-import { MapContainer, Marker, Popup } from 'react-leaflet';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { MapContainer, Marker, Popup, useMap } from 'react-leaflet';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import 'leaflet/dist/leaflet.css';
 import HistoryTimeline, { type HistoryLog } from '../components/HistoryTimeline';
@@ -189,6 +189,27 @@ function buildAISummaryInsight(
                       `SLA ${slaHours[incident.priority]}h`,
                   ];
 
+    let verificationStatus: 'MATCH' | 'CATEGORY_MISMATCH' | 'UNRELATED_OR_SPAM' | null =
+        aiData?.verification_status ?? null;
+    if (!verificationStatus && aiData) {
+        if (aiData.suggested_category_id === null) {
+            verificationStatus = 'UNRELATED_OR_SPAM';
+        } else if (
+            typeof aiData.suggested_category_id === 'number' &&
+            aiData.suggested_category_id !== incident.category_id
+        ) {
+            verificationStatus = 'CATEGORY_MISMATCH';
+        } else {
+            verificationStatus = 'MATCH';
+        }
+    }
+
+    const whatIsInImage = aiData?.what_is_in_image || aiData?.label || categoryLabel;
+    const verificationReason =
+        language === 'vi'
+            ? aiData?.verification_reason_vi || aiData?.verification_reason || aiData?.summary || null
+            : aiData?.verification_reason || aiData?.summary || null;
+
     return {
         executiveSummary,
         geminiVisionSummary: aiData?.summary || null,
@@ -198,7 +219,20 @@ function buildAISummaryInsight(
         suggestedSeverity,
         recommendedUnit: language === 'vi' ? unitVi : unitEn,
         tags,
+        verificationStatus,
+        verificationReason,
+        whatIsInImage,
     };
+}
+
+function MapZoomController({ center, zoom, trigger }: { center: [number, number]; zoom: number; trigger: number }) {
+    const map = useMap();
+    useEffect(() => {
+        if (trigger > 0) {
+            map.flyTo(center, zoom, { duration: 0.75 });
+        }
+    }, [map, center, zoom, trigger]);
+    return null;
 }
 
 export default function IncidentDetail() {
@@ -231,6 +265,19 @@ export default function IncidentDetail() {
     const [notice, setNotice] = useState('');
     const [noticeType, setNoticeType] = useState<'success' | 'error'>('success');
     const [now, setNow] = useState(() => Date.now());
+    const [mapZoom, setMapZoom] = useState(16);
+    const [mapZoomTrigger, setMapZoomTrigger] = useState(0);
+    const [activeAreaFilter, setActiveAreaFilter] = useState('spot');
+    const mapSectionRef = useRef<HTMLElement | null>(null);
+
+    const zoomToArea = (zoomLevel: number, filterKey: string, scrollToMap = false) => {
+        setMapZoom(zoomLevel);
+        setActiveAreaFilter(filterKey);
+        setMapZoomTrigger((prev) => prev + 1);
+        if (scrollToMap) {
+            mapSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+    };
 
     const loadActivity = useCallback(async (incidentId: number, assignedTo: number | null, assignedName?: string) => {
         const [historyResult, notesResult, staffResult] = await Promise.allSettled([
@@ -303,16 +350,83 @@ export default function IncidentDetail() {
     if (loading) return <div className="rounded-xl bg-white p-12 text-center text-sm text-neutral-500">{t('Đang tải chi tiết báo cáo...', 'Loading incident details...')}</div>;
     if (error || !incident) return <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-sm text-danger">{error || t('Không tìm thấy báo cáo.', 'Incident not found.')}<button type="button" onClick={() => void loadIncident()} className="ml-3 inline-flex items-center gap-1 font-semibold underline"><RefreshCw size={14} />{t('Thử lại', 'Retry')}</button></div>;
 
-    const latitude = incident.latitude ?? 10.7769;
-    const longitude = incident.longitude ?? 106.7009;
+    const parsedLat = Number(incident.latitude);
+    const parsedLng = Number(incident.longitude);
+    const latitude = Number.isFinite(parsedLat) ? parsedLat : 10.7769;
+    const longitude = Number.isFinite(parsedLng) ? parsedLng : 106.7009;
     const slaDeadline = parseDatabaseDateTime(incident.created_at).getTime() + slaHours[incident.priority] * 60 * 60 * 1000;
     const slaRemaining = slaDeadline - now;
     const isTerminal = status === 'Hoàn tất' || status === 'Từ chối';
     const slaOverdue = !isTerminal && slaRemaining <= 0;
     const aiInsight = buildAISummaryInsight(incident, language, translateCategory);
     const suggestedPriorityVi = priorityLabels[aiInsight.suggestedSeverity];
+    const areaParts = Array.from(
+        new Set(
+            (incident.location_name || '')
+                .split(',')
+                .map((part) => part.trim())
+                .filter(Boolean)
+        )
+    );
+    const areaFilterOptions = [
+        {
+            key: 'spot',
+            label: areaParts[0] || t('Điểm sự cố (Cận cảnh)', 'Incident Spot (Close-up)'),
+            zoom: 18,
+        },
+        {
+            key: 'ward',
+            label: areaParts[1] || t('Phường / Khu vực lân cận', 'Ward / Neighborhood'),
+            zoom: 16,
+        },
+        {
+            key: 'district',
+            label: areaParts[2] || t('Quận / Huyện', 'District View'),
+            zoom: 14,
+        },
+        {
+            key: 'city',
+            label: areaParts[3] || t('Toàn Thành phố', 'City Overview'),
+            zoom: 12,
+        },
+    ];
+
     const infoRows: InfoRow[] = [
-        { label: t('Mã sự cố', 'Incident ID'), value: `BC-${incident.id}` }, { label: t('Danh mục', 'Category'), value: incident.category_name ? translateCategory(incident.category_name) : t(`Danh mục ${incident.category_id}`, `Category ${incident.category_id}`) }, { label: t('Khu vực', 'Area'), value: incident.location_name || t('Chưa cập nhật', 'Not provided') }, { label: t('Địa chỉ', 'Address'), value: incident.location_name || t('Chưa cập nhật', 'Not provided') }, { label: t('Người phản ánh', 'Reporter'), value: <span>{incident.user_name || incident.user_email || t('Không xác định', 'Unspecified')}<span className="mt-1 block text-xs font-normal text-neutral-500">{incident.user_phone || t('Chưa cập nhật SĐT', 'Phone not provided')}</span></span> }, { label: t('Kênh tiếp nhận', 'Submission channel'), value: 'UIRMS' },
+        { label: t('Mã sự cố', 'Incident ID'), value: `BC-${incident.id}` },
+        { label: t('Danh mục', 'Category'), value: incident.category_name ? translateCategory(incident.category_name) : t(`Danh mục ${incident.category_id}`, `Category ${incident.category_id}`) },
+        {
+            label: t('Khu vực', 'Area'),
+            value: incident.location_name ? (
+                <button
+                    type="button"
+                    onClick={() => zoomToArea(16, 'ward', true)}
+                    className="inline-flex items-center gap-1.5 text-left font-semibold text-primary hover:underline"
+                    title={t('Nhấn để phóng to khu vực trên bản đồ', 'Click to zoom to this area on the map')}
+                >
+                    <MapPin size={14} className="shrink-0" />
+                    <span>{areaParts.slice(1).join(', ') || incident.location_name}</span>
+                </button>
+            ) : (
+                t('Chưa cập nhật', 'Not provided')
+            ),
+        },
+        {
+            label: t('Địa chỉ', 'Address'),
+            value: incident.location_name ? (
+                <button
+                    type="button"
+                    onClick={() => zoomToArea(18, 'spot', true)}
+                    className="inline-flex items-center gap-1.5 text-left font-semibold text-neutral-900 hover:text-primary hover:underline"
+                    title={t('Nhấn để phóng to vị trí chính xác trên bản đồ', 'Click to zoom to exact location on the map')}
+                >
+                    <span>{incident.location_name}</span>
+                </button>
+            ) : (
+                t('Chưa cập nhật', 'Not provided')
+            ),
+        },
+        { label: t('Người phản ánh', 'Reporter'), value: <span>{incident.user_name || incident.user_email || t('Không xác định', 'Unspecified')}<span className="mt-1 block text-xs font-normal text-neutral-500">{incident.user_phone || t('Chưa cập nhật SĐT', 'Phone not provided')}</span></span> },
+        { label: t('Kênh tiếp nhận', 'Submission channel'), value: 'UIRMS' },
     ];
     const logs: HistoryLog[] = history.map((entry) => {
         const action = entry.action === 'assigned' ? 'Đã cập nhật phân công' : entry.action === 'status_changed' ? 'Đã cập nhật trạng thái' : 'Đã thêm ghi chú';
@@ -505,6 +619,83 @@ export default function IncidentDetail() {
                             )}
                         </div>
                     )}
+
+                    {/* Image & Content Verification Result */}
+                    {aiInsight.verificationStatus && (
+                        <div
+                            className={`mt-3 rounded-lg border p-3 ${
+                                aiInsight.verificationStatus === 'MATCH'
+                                    ? 'border-emerald-200 bg-emerald-50/80 text-emerald-900'
+                                    : aiInsight.verificationStatus === 'CATEGORY_MISMATCH'
+                                        ? 'border-amber-200 bg-amber-50/90 text-amber-900'
+                                        : 'border-rose-300 bg-rose-50 text-rose-900'
+                            }`}
+                        >
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                                <p className="text-[11px] font-bold uppercase tracking-wider">
+                                    {t('Kết quả đối chiếu Hình ảnh & Nội dung', 'Image & Content Cross-Check')}
+                                </p>
+                                <span
+                                    className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-bold ${
+                                        aiInsight.verificationStatus === 'MATCH'
+                                            ? 'bg-emerald-600 text-white'
+                                            : aiInsight.verificationStatus === 'CATEGORY_MISMATCH'
+                                                ? 'bg-amber-500 text-white'
+                                                : 'bg-rose-600 text-white'
+                                    }`}
+                                >
+                                    {aiInsight.verificationStatus === 'MATCH'
+                                        ? t('✓ Khớp nội dung', '✓ Verified Match')
+                                        : aiInsight.verificationStatus === 'CATEGORY_MISMATCH'
+                                            ? t('⚠ Lệch danh mục', '⚠ Category Mismatch')
+                                            : t('🚨 Nghi vấn Spam / Không khớp', '🚨 Unrelated / Spam')}
+                                </span>
+                            </div>
+
+                            <p className="mt-1.5 text-xs font-semibold">
+                                {aiInsight.verificationStatus === 'MATCH' &&
+                                    t(
+                                        '✓ Ảnh hiện trường khớp với nội dung báo cáo',
+                                        '✓ Scene photo matches the reported incident'
+                                    )}
+                                {aiInsight.verificationStatus === 'CATEGORY_MISMATCH' &&
+                                    t(
+                                        `⚠ Ảnh chụp thực tế là ${aiInsight.whatIsInImage || aiInsight.suggestedCategoryName}, khác với danh mục người dân chọn`,
+                                        `⚠ Photo actually shows "${aiInsight.whatIsInImage || aiInsight.suggestedCategoryName}", which differs from the selected category`
+                                    )}
+                                {aiInsight.verificationStatus === 'UNRELATED_OR_SPAM' &&
+                                    t(
+                                        '🚨 Cảnh báo: Ảnh đính kèm không khớp với sự cố khai báo!',
+                                        '🚨 Warning: Attached photo does not match the declared incident!'
+                                    )}
+                            </p>
+
+                            {aiInsight.verificationReason && (
+                                <p className="mt-1 text-xs leading-relaxed opacity-90">
+                                    {aiInsight.verificationReason}
+                                </p>
+                            )}
+
+                            {aiInsight.verificationStatus === 'UNRELATED_OR_SPAM' && (
+                                <div className="mt-2.5">
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setStatus('Từ chối');
+                                            setRejectionReason(
+                                                language === 'vi'
+                                                    ? `Ảnh đính kèm không khớp với sự cố khai báo (${aiInsight.verificationReason || aiInsight.whatIsInImage || 'hình ảnh không hợp lệ'}). Vui lòng cung cấp ảnh hiện trường thực tế.`
+                                                    : `Attached photo does not match the reported incident (${aiInsight.verificationReason || aiInsight.whatIsInImage || 'invalid image'}). Please provide an authentic scene photo.`
+                                            );
+                                        }}
+                                        className="inline-flex items-center gap-1.5 rounded-md bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-rose-700"
+                                    >
+                                        {t('Điền nhanh lý do Từ chối', 'Quick-fill Rejection Reason')}
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    )}
                 </div>
 
                 {/* 3-Column AI Triage Metrics */}
@@ -625,7 +816,64 @@ export default function IncidentDetail() {
                             )}
                         </section>
                     )}
-                    <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"><div className="p-5"><h2 className="text-base font-bold text-neutral-900">{t('Vị Trí Trên Bản Đồ', 'Map Location')}</h2></div><div className="h-[290px]"><MapContainer center={[latitude, longitude]} zoom={15} scrollWheelZoom={false} className="h-full w-full"><TileLayer attribution="&copy; OpenStreetMap contributors" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" /><Marker position={[latitude, longitude]}><Popup>{incident.location_name || t('Vị trí báo cáo', 'Incident location')}</Popup></Marker></MapContainer></div><div className="flex items-center gap-2 px-5 py-3 text-sm text-neutral-600"><MapPin size={17} className="text-danger" />{incident.location_name || t('Chưa cập nhật địa chỉ', 'Address not provided')}</div></section>
+                    <section ref={mapSectionRef} className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+                        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
+                            <div>
+                                <h2 className="text-base font-bold text-neutral-900">{t('Vị Trí Trên Bản Đồ', 'Map Location')}</h2>
+                                <p className="mt-0.5 text-xs text-neutral-500">
+                                    {t('Chọn khu vực bên dưới để tự động phóng to / thu nhỏ phạm vi bản đồ', 'Select an area scope below to automatically zoom the map')}
+                                </p>
+                            </div>
+                            <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-neutral-600">
+                                {latitude.toFixed(5)}, {longitude.toFixed(5)}
+                            </span>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 bg-slate-50/70 px-5 py-3">
+                            <span className="text-xs font-bold text-neutral-500">{t('Khu vực:', 'Area zoom:')}</span>
+                            {areaFilterOptions.map((opt) => (
+                                <button
+                                    key={opt.key}
+                                    type="button"
+                                    onClick={() => zoomToArea(opt.zoom, opt.key)}
+                                    className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                                        activeAreaFilter === opt.key
+                                            ? 'bg-primary text-white shadow-xs'
+                                            : 'border border-slate-200 bg-white text-neutral-700 hover:border-primary hover:text-primary'
+                                    }`}
+                                >
+                                    <MapPin size={12} />
+                                    <span className="max-w-[200px] truncate">{opt.label}</span>
+                                </button>
+                            ))}
+                        </div>
+                        <div className="h-[420px]">
+                            <MapContainer center={[latitude, longitude]} zoom={16} scrollWheelZoom className="h-full w-full">
+                                <TileLayer attribution="&copy; OpenStreetMap contributors" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                                <MapZoomController center={[latitude, longitude]} zoom={mapZoom} trigger={mapZoomTrigger} />
+                                <Marker
+                                    position={[latitude, longitude]}
+                                    eventHandlers={{
+                                        click: () => zoomToArea(18, 'spot'),
+                                    }}
+                                >
+                                    <Popup>{incident.location_name || t('Vị trí báo cáo', 'Incident location')}</Popup>
+                                </Marker>
+                            </MapContainer>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => zoomToArea(18, 'spot')}
+                            className="flex w-full items-center justify-between gap-2 px-5 py-3 text-left text-sm text-neutral-600 transition hover:bg-slate-50 hover:text-primary"
+                        >
+                            <span className="flex items-center gap-2">
+                                <MapPin size={17} className="shrink-0 text-danger" />
+                                <span>{incident.location_name || t('Chưa cập nhật địa chỉ', 'Address not provided')}</span>
+                            </span>
+                            <span className="shrink-0 text-xs font-semibold text-primary">
+                                {t('Phóng to vị trí ↗', 'Zoom to spot ↗')}
+                            </span>
+                        </button>
+                    </section>
                 </div>
                 <div className="space-y-6"><ProcessingPanel incidentId={incident.id} canManageIncident={canManageIncident} status={status} rejectionReason={rejectionReason} priority={priority} assignee={assignee} assigneeError={assigneeError} note={note} feedback={feedback} staff={staff} noteSaving={noteSaving} notifying={notifying} updating={updating} updateConfirmed={updateConfirmed} notes={notes} onStatusChange={setStatus} onRejectionReasonChange={setRejectionReason} onPriorityChange={setPriority} onAssigneeChange={(value) => { setAssignee(value); const matched = staff.find((person) => staffOptionLabel(person) === value || person.full_name === value || person.username === value); setAssigneeId(matched?.id ?? null); setAssigneeError(value && !matched ? t('Chọn một kỹ thuật viên trong danh sách gợi ý.', 'Select a technician from the suggestions.') : ''); }} onNoteChange={setNote} onAddNote={saveNote} onFeedbackChange={setFeedback} onUpdate={() => void saveChanges()} onNotify={sendNotification} /><HistoryTimeline logs={logs} /></div>
             </div>

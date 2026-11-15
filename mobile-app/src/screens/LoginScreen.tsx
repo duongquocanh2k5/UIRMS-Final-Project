@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -8,14 +8,18 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Keyboard,
+  Modal,
+  ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import LanguageToggle from '../components/LanguageToggle';
 import { apiClient } from '../services/api';
+import { decodeVietnameseCCCD, openOfficialVNeIDApp } from '../utils/vneid';
 
 type AuthStackParamList = {
   Login: undefined;
@@ -23,9 +27,19 @@ type AuthStackParamList = {
   ForgotPassword: undefined;
 };
 
+interface EkycExtractedInfo {
+  document_type: 'CCCD_CHIP' | 'VNEID_APP' | 'INVALID';
+  identity_number: string;
+  full_name: string;
+  date_of_birth?: string;
+  gender?: string;
+  place_of_residence?: string;
+  province_name?: string;
+}
+
 export default function LoginScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<AuthStackParamList, 'Login'>>();
-  const { login } = useAuth();
+  const { login, loginWithVNeID } = useAuth();
   const { t, language } = useLanguage();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -33,6 +47,112 @@ export default function LoginScreen() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSlowRequest, setIsSlowRequest] = useState(false);
   const [serverWarming, setServerWarming] = useState(true);
+  const [vneidModalVisible, setVneidModalVisible] = useState(false);
+  const [vneidCccd, setVneidCccd] = useState('');
+  const [vneidName, setVneidName] = useState('');
+  const [vneidPhone, setVneidPhone] = useState('');
+  const [vneidLoading, setVneidLoading] = useState(false);
+  const [scanningEkyc, setScanningEkyc] = useState(false);
+  const [ekycResult, setEkycResult] = useState<EkycExtractedInfo | null>(null);
+
+  const decodedCccd = useMemo(() => {
+    if (vneidCccd.trim().length === 0) return null;
+    return decodeVietnameseCCCD(vneidCccd.trim());
+  }, [vneidCccd]);
+
+  const handleScanVNeIDDocument = async (useCamera: boolean) => {
+    try {
+      const permission = useCamera
+        ? await ImagePicker.requestCameraPermissionsAsync()
+        : await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+      if (!permission.granted) {
+        Alert.alert(
+          t('Cần cấp quyền', 'Permission required'),
+          useCamera
+            ? t('Vui lòng cấp quyền Camera để chụp thẻ CCCD gắn chip.', 'Allow camera access to scan your Citizen ID card.')
+            : t('Vui lòng cấp quyền Thư viện ảnh để chọn ảnh CCCD / màn hình VNeID.', 'Allow photo library access to select your CCCD or VNeID image.')
+        );
+        return;
+      }
+
+      const pickerResult = useCamera
+        ? await ImagePicker.launchCameraAsync({
+          mediaTypes: ['images'],
+          quality: 0.8,
+          base64: true,
+        })
+        : await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ['images'],
+          quality: 0.8,
+          base64: true,
+        });
+
+      if (pickerResult.canceled || !pickerResult.assets?.[0]?.base64) {
+        return;
+      }
+
+      const asset = pickerResult.assets[0];
+      setScanningEkyc(true);
+      const response = await apiClient.scanVNeIDDocument(
+        asset.base64!,
+        asset.mimeType || 'image/jpeg'
+      );
+
+      if (response?.success && response?.data) {
+        const info = response.data as EkycExtractedInfo;
+        setVneidCccd(info.identity_number || '');
+        if (info.full_name) {
+          setVneidName(info.full_name);
+        }
+        setEkycResult(info);
+      }
+    } catch (err: any) {
+      Alert.alert(
+        t('Không thể đọc thẻ CCCD / VNeID', 'eKYC Scan Failed'),
+        err?.response?.data?.error ||
+        err?.message ||
+        t('Vui lòng chụp rõ nét mặt trước thẻ CCCD gắn chip hoặc ảnh màn hình VNeID.', 'Please take a clear photo of your CCCD front side or VNeID screen.')
+      );
+    } finally {
+      setScanningEkyc(false);
+    }
+  };
+
+  const handleVNeIDLogin = async () => {
+    const cleanCccd = vneidCccd.trim();
+    const check = decodeVietnameseCCCD(cleanCccd);
+    if (!check.valid) {
+      Alert.alert(
+        t('Số CCCD không đúng chuẩn C06', 'Invalid Citizen ID (C06 Standard)'),
+        (language === 'vi' ? check.errorVi : check.errorEn) ||
+        t('Vui lòng nhập đúng 12 chữ số CCCD gắn chip hợp lệ.', 'Please enter a valid 12-digit Citizen ID.')
+      );
+      return;
+    }
+
+    const cleanName = vneidName.trim();
+    if (cleanName.length < 2) {
+      Alert.alert(
+        t('Thiếu Họ và tên công dân', 'Missing Citizen Full Name'),
+        t('Vui lòng nhập đúng Họ và tên trên thẻ CCCD (hoặc bấm Quét thẻ CCCD/VNeID phía trên).', 'Please enter your full name as shown on your CCCD (or scan your CCCD/VNeID above).')
+      );
+      return;
+    }
+
+    try {
+      setVneidLoading(true);
+      await loginWithVNeID(cleanCccd, cleanName, vneidPhone.trim() || undefined);
+      setVneidModalVisible(false);
+    } catch (err: any) {
+      Alert.alert(
+        t('Lỗi kết nối VNeID', 'VNeID Login Failed'),
+        err?.response?.data?.error || err?.message || t('Không thể xác thực VNeID lúc này.', 'Unable to authenticate with VNeID right now.')
+      );
+    } finally {
+      setVneidLoading(false);
+    }
+  };
 
   // Phương án 2: Tự động "đánh thức" (Pre-warm) máy chủ Render ngay khi mở màn hình Đăng nhập
   useEffect(() => {
@@ -74,9 +194,9 @@ export default function LoginScreen() {
         err?.response?.data?.message ||
         (err?.code === 'ECONNABORTED'
           ? t(
-              'Máy chủ đang khởi động lại mất nhiều thời gian hơn dự kiến. Vui lòng bấm Đăng nhập lại một lần nữa.',
-              'The server took longer than expected to wake up. Please tap Log in once more.'
-            )
+            'Máy chủ đang khởi động lại mất nhiều thời gian hơn dự kiến. Vui lòng bấm Đăng nhập lại một lần nữa.',
+            'The server took longer than expected to wake up. Please tap Log in once more.'
+          )
           : err?.message);
       Alert.alert(
         t('Lỗi đăng nhập', 'Login failed'),
@@ -202,9 +322,208 @@ export default function LoginScreen() {
         </View>
       )}
 
+      <TouchableOpacity
+        style={[styles.vneidButton, isSubmitting && styles.loginButtonDisabled]}
+        onPress={() => setVneidModalVisible(true)}
+        disabled={isSubmitting}
+        activeOpacity={0.85}
+      >
+        <View style={styles.vneidBadgeCircle}>
+          <Ionicons name="shield-checkmark" size={16} color="#FACC15" />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.vneidButtonTitle}>
+            {t('Đăng nhập bằng VNeID', 'Sign in with VNeID')}
+          </Text>
+          <Text style={styles.vneidButtonSub}>
+            {t('Định danh điện tử Bộ Công an (Mức độ 2)', 'National Digital Identity (Level 2)')}
+          </Text>
+        </View>
+        <Ionicons name="chevron-forward" size={18} color="#FEE2E2" />
+      </TouchableOpacity>
+
       <TouchableOpacity style={styles.registerButton} onPress={handleRegister} disabled={isSubmitting}>
         <Text style={styles.registerButtonText}>{t('Đăng ký', 'Create account')}</Text>
       </TouchableOpacity>
+
+      <Modal
+        visible={vneidModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setVneidModalVisible(false)}
+      >
+        <View style={styles.vneidModalOverlay}>
+          <View style={styles.vneidModalCard}>
+            <View style={styles.vneidModalHeader}>
+              <View style={styles.vneidHeaderRow}>
+                <View style={styles.vneidHeaderIcon}>
+                  <Ionicons name="shield-checkmark" size={20} color="#FACC15" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.vneidModalTitle}>
+                    {t('Định danh Điện tử VNeID & eKYC CCCD', 'VNeID & Citizen ID eKYC')}
+                  </Text>
+                  <Text style={styles.vneidModalSub}>
+                    {t('Quét thẻ CCCD gắn chip hoặc đối chiếu chuẩn C06 Bộ Công an', 'Scan Chip-based CCCD or verify C06 National ID structure')}
+                  </Text>
+                </View>
+                <TouchableOpacity onPress={() => setVneidModalVisible(false)}>
+                  <Ionicons name="close" size={24} color="#64748b" />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+              {/* Real AI eKYC Scanner & Official VNeID App Actions */}
+              <View style={styles.ekycActionRow}>
+                <TouchableOpacity
+                  style={styles.ekycScanBtn}
+                  onPress={() => void handleScanVNeIDDocument(true)}
+                  disabled={scanningEkyc || vneidLoading}
+                >
+                  <Ionicons name="camera-outline" size={17} color="#B91C1C" />
+                  <Text style={styles.ekycScanBtnText}>
+                    {t('Chụp CCCD', 'Scan CCCD')}
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.ekycScanBtn}
+                  onPress={() => void handleScanVNeIDDocument(false)}
+                  disabled={scanningEkyc || vneidLoading}
+                >
+                  <Ionicons name="image-outline" size={17} color="#B91C1C" />
+                  <Text style={styles.ekycScanBtnText}>
+                    {t('Ảnh CCCD/VNeID', 'Upload ID/VNeID')}
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.openVneidAppBtn}
+                  onPress={() => void openOfficialVNeIDApp()}
+                  disabled={scanningEkyc || vneidLoading}
+                >
+                  <Ionicons name="open-outline" size={16} color="#0F172A" />
+                  <Text style={styles.openVneidAppText}>
+                    {t('Mở VNeID', 'Open VNeID')}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {scanningEkyc && (
+                <View style={styles.ekycLoadingBox}>
+                  <ActivityIndicator size="small" color="#B91C1C" />
+                  <Text style={styles.ekycLoadingText}>
+                    {t('AI eKYC đang đọc thông tin trên thẻ CCCD / màn hình VNeID...', 'AI eKYC is reading your CCCD / VNeID document...')}
+                  </Text>
+                </View>
+              )}
+
+              {ekycResult && (
+                <View style={styles.ekycSuccessBanner}>
+                  <Ionicons name="checkmark-circle" size={18} color="#15803D" />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.ekycSuccessTitle}>
+                      {ekycResult.document_type === 'VNEID_APP'
+                        ? t('Đã xác thực từ màn hình ứng dụng VNeID', 'Extracted from VNeID App Screen')
+                        : t('Đã đọc thành công Thẻ CCCD gắn chip', 'Extracted from Chip-based CCCD Card')}
+                    </Text>
+                    <Text style={styles.ekycSuccessSub}>
+                      {ekycResult.full_name} · {ekycResult.date_of_birth || ''} · {ekycResult.place_of_residence || ekycResult.province_name || ''}
+                    </Text>
+                  </View>
+                </View>
+              )}
+
+              <Text style={styles.vneidFieldLabel}>
+                {t('Số định danh cá nhân (CCCD gắn chip 12 số) *', '12-Digit Citizen ID (Chip CCCD) *')}
+              </Text>
+              <TextInput
+                style={styles.input}
+                placeholder={t('Nhập 12 chữ số trên thẻ CCCD của bạn', 'Enter your 12-digit Citizen ID')}
+                value={vneidCccd}
+                onChangeText={(val) => {
+                  setVneidCccd(val.replace(/\D/g, ''));
+                  setEkycResult(null);
+                }}
+                keyboardType="number-pad"
+                maxLength={12}
+                editable={!vneidLoading && !scanningEkyc}
+              />
+
+              {/* Real-time C06 National ID Structure Decoder */}
+              {decodedCccd && (
+                <View
+                  style={[
+                    styles.cccdDecodeBanner,
+                    decodedCccd.valid ? styles.cccdDecodeValid : styles.cccdDecodeInvalid,
+                  ]}
+                >
+                  <Ionicons
+                    name={decodedCccd.valid ? 'shield-checkmark' : 'alert-circle'}
+                    size={16}
+                    color={decodedCccd.valid ? '#0F766E' : '#B91C1C'}
+                  />
+                  <Text
+                    style={[
+                      styles.cccdDecodeText,
+                      { color: decodedCccd.valid ? '#0F766E' : '#B91C1C' },
+                    ]}
+                  >
+                    {decodedCccd.valid
+                      ? t(
+                        `Chuẩn C06 hợp lệ: Nơi đăng ký khai sinh ${decodedCccd.provinceName} (Mã ${decodedCccd.provinceCode}) · Giới tính: ${decodedCccd.genderVi} · Năm sinh: ${decodedCccd.birthYear}`,
+                        `Valid C06 ID: Province ${decodedCccd.provinceName} (${decodedCccd.provinceCode}) · Gender: ${decodedCccd.genderEn} · Birth Year: ${decodedCccd.birthYear}`
+                      )
+                      : language === 'vi'
+                        ? decodedCccd.errorVi
+                        : decodedCccd.errorEn}
+                  </Text>
+                </View>
+              )}
+
+              <Text style={styles.vneidFieldLabel}>
+                {t('Họ và tên công dân (đúng như trên thẻ CCCD) *', 'Citizen Full Name (as shown on CCCD) *')}
+              </Text>
+              <TextInput
+                style={styles.input}
+                placeholder={t('Nhập họ và tên thật của bạn', 'Enter your full legal name')}
+                value={vneidName}
+                onChangeText={setVneidName}
+                autoCapitalize="words"
+                editable={!vneidLoading && !scanningEkyc}
+              />
+
+              <Text style={styles.vneidFieldLabel}>
+                {t('Số điện thoại liên kết VNeID (tùy chọn)', 'VNeID Linked Phone Number (optional)')}
+              </Text>
+              <TextInput
+                style={styles.input}
+                placeholder={t('Ví dụ: 0901234567', 'e.g., 0901234567')}
+                value={vneidPhone}
+                onChangeText={setVneidPhone}
+                keyboardType="phone-pad"
+                maxLength={10}
+                editable={!vneidLoading && !scanningEkyc}
+              />
+
+              <TouchableOpacity
+                style={[styles.vneidConfirmButton, (vneidLoading || scanningEkyc) && styles.loginButtonDisabled]}
+                onPress={() => void handleVNeIDLogin()}
+                disabled={vneidLoading || scanningEkyc}
+              >
+                {vneidLoading ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.vneidConfirmText}>
+                    {t('Xác thực Định danh & Đăng nhập', 'Verify Identity & Sign In')}
+                  </Text>
+                )}
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -323,5 +642,199 @@ const styles = StyleSheet.create({
     textAlign: 'right',
     marginTop: -8,
     marginBottom: 12,
+  },
+  vneidButton: {
+    marginTop: 14,
+    backgroundColor: '#B91C1C',
+    borderRadius: 10,
+    paddingVertical: 11,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderWidth: 1,
+    borderColor: '#991B1B',
+  },
+  vneidBadgeCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#7F1D1D',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#FACC15',
+  },
+  vneidButtonTitle: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  vneidButtonSub: {
+    color: '#FECACA',
+    fontSize: 11,
+    marginTop: 1,
+  },
+  vneidModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.55)',
+    justifyContent: 'flex-end',
+  },
+  vneidModalCard: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 20,
+    paddingBottom: 28,
+    maxHeight: '88%',
+  },
+  vneidModalHeader: {
+    marginBottom: 14,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
+  },
+  vneidHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  vneidHeaderIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    backgroundColor: '#B91C1C',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  vneidModalTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  vneidModalSub: {
+    fontSize: 12,
+    color: '#64748B',
+    marginTop: 2,
+  },
+  ekycActionRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 14,
+  },
+  ekycScanBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+  },
+  ekycScanBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#B91C1C',
+  },
+  openVneidAppBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    backgroundColor: '#F1F5F9',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+  },
+  openVneidAppText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  ekycLoadingBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    padding: 10,
+    borderRadius: 10,
+    backgroundColor: '#FFF7ED',
+    borderWidth: 1,
+    borderColor: '#FED7AA',
+    marginBottom: 12,
+  },
+  ekycLoadingText: {
+    flex: 1,
+    fontSize: 12,
+    color: '#9A3412',
+    fontWeight: '600',
+  },
+  ekycSuccessBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    padding: 10,
+    borderRadius: 10,
+    backgroundColor: '#F0FDF4',
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+    marginBottom: 12,
+  },
+  ekycSuccessTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#166534',
+  },
+  ekycSuccessSub: {
+    fontSize: 11,
+    color: '#15803D',
+    marginTop: 2,
+  },
+  cccdDecodeBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 6,
+    padding: 10,
+    borderRadius: 9,
+    borderWidth: 1,
+    marginTop: -8,
+    marginBottom: 14,
+  },
+  cccdDecodeValid: {
+    backgroundColor: '#F0FDFA',
+    borderColor: '#99F6E4',
+  },
+  cccdDecodeInvalid: {
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FECACA',
+  },
+  cccdDecodeText: {
+    flex: 1,
+    fontSize: 11,
+    fontWeight: '600',
+    lineHeight: 16,
+  },
+  vneidFieldLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#334155',
+    marginBottom: 6,
+  },
+  vneidConfirmButton: {
+    backgroundColor: '#B91C1C',
+    borderRadius: 10,
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  vneidConfirmText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '800',
   },
 });

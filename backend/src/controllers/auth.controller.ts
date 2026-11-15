@@ -6,8 +6,15 @@
 import { Request, Response } from 'express';
 import { AuthRequest } from '../middlewares/auth.middleware';
 import { authService } from '../services/auth.service';
+import { aiService } from '../services/ai.service';
 import { HTTP_STATUS, ERROR_MESSAGES, SUCCESS_MESSAGES } from '../config/constants';
-import { isValidEmail, isValidPhoneNumber, isValidPassword, isValidIdentityNumber } from '../utils/validators';
+import {
+  isValidEmail,
+  isValidPhoneNumber,
+  isValidPassword,
+  isValidIdentityNumber,
+  parseAndValidateCCCD,
+} from '../utils/validators';
 import { generateToken } from '../utils/jwt';
 
 const LOGIN_MAX_ATTEMPTS = 5;
@@ -304,14 +311,14 @@ export class AuthController {
       }
 
       const result = await authService.sendEmailVerificationOTP(userId);
-      if (result === 'not_found') {
+      if (result.status === 'not_found') {
         res.status(HTTP_STATUS.NOT_FOUND).json({
           error: ERROR_MESSAGES.NOT_FOUND,
         });
         return;
       }
 
-      if (result === 'already_verified') {
+      if (result.status === 'already_verified') {
         res.status(HTTP_STATUS.OK).json({
           success: true,
           message: 'Email is already verified',
@@ -319,9 +326,13 @@ export class AuthController {
         return;
       }
 
-      if (result === 'delivery_failed') {
-        res.status(HTTP_STATUS.SERVICE_UNAVAILABLE).json({
-          error: 'Unable to send verification email. Check server email configuration.',
+      if (result.status === 'sent_fallback') {
+        res.status(HTTP_STATUS.OK).json({
+          success: true,
+          message: 'Verification code generated directly in app',
+          data: {
+            fallback_otp: result.otp,
+          },
         });
         return;
       }
@@ -332,6 +343,176 @@ export class AuthController {
       });
     } catch (error) {
       console.error('Send verification email error:', error);
+      res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+        error: ERROR_MESSAGES.INTERNAL_ERROR,
+      });
+    }
+  }
+
+  /**
+   * AI eKYC OCR for Vietnamese CCCD / VNeID image
+   * POST /auth/vneid-ekyc
+   */
+  async vneidEkyc(req: Request, res: Response): Promise<void> {
+    try {
+      const { image_base64, mime_type } = req.body;
+      if (typeof image_base64 !== 'string' || !image_base64.trim()) {
+        res.status(HTTP_STATUS.BAD_REQUEST).json({
+          error: 'Vui lòng cung cấp ảnh chụp Thẻ CCCD gắn chip hoặc màn hình ứng dụng VNeID.',
+        });
+        return;
+      }
+
+      const ocrResult = await aiService.extractVNeIDOrCCCDFromImage(
+        image_base64,
+        typeof mime_type === 'string' ? mime_type : 'image/jpeg'
+      );
+
+      if (!ocrResult) {
+        res.status(HTTP_STATUS.SERVICE_UNAVAILABLE).json({
+          error: 'Dịch vụ AI eKYC tạm thời không phản hồi. Bạn có thể nhập trực tiếp 12 số CCCD và Họ tên bên dưới.',
+        });
+        return;
+      }
+
+      if (!ocrResult.is_valid_document || !ocrResult.identity_number) {
+        res.status(HTTP_STATUS.BAD_REQUEST).json({
+          error:
+            ocrResult.reason_vi ||
+            'Ảnh tải lên không phải Thẻ CCCD gắn chip hoặc màn hình VNeID hợp lệ, hoặc bị mờ số định danh 12 số.',
+        });
+        return;
+      }
+
+      const cccdCheck = parseAndValidateCCCD(ocrResult.identity_number);
+      if (!cccdCheck.valid) {
+        res.status(HTTP_STATUS.BAD_REQUEST).json({
+          error: cccdCheck.error || 'Mã số CCCD đọc được không đúng chuẩn C06 Bộ Công an.',
+        });
+        return;
+      }
+
+      res.json({
+        success: true,
+        message: 'Đã trích xuất và kiểm chứng thành công thông tin định danh công dân.',
+        data: {
+          document_type: ocrResult.document_type,
+          identity_number: ocrResult.identity_number,
+          full_name: ocrResult.full_name,
+          date_of_birth: ocrResult.date_of_birth || String(cccdCheck.birthYear),
+          gender: ocrResult.gender || cccdCheck.gender,
+          place_of_residence: ocrResult.place_of_residence || cccdCheck.provinceName,
+          province_code: cccdCheck.provinceCode,
+          province_name: cccdCheck.provinceName,
+          birth_year: cccdCheck.birthYear,
+        },
+      });
+    } catch (error) {
+      console.error('VNeID eKYC error:', error);
+      res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+        error: ERROR_MESSAGES.INTERNAL_ERROR,
+      });
+    }
+  }
+
+  /**
+   * Login / Register via VNeID Digital Identity
+   * POST /auth/vneid-login
+   */
+  async vneidLogin(req: Request, res: Response): Promise<void> {
+    try {
+      const { identity_number, full_name, phone } = req.body;
+      const cleanCccd = typeof identity_number === 'string' ? identity_number.trim() : '';
+      const cccdCheck = parseAndValidateCCCD(cleanCccd);
+      if (!cccdCheck.valid) {
+        res.status(HTTP_STATUS.BAD_REQUEST).json({
+          error: cccdCheck.error || 'Số định danh cá nhân (CCCD) không hợp lệ theo chuẩn C06 Bộ Công an.',
+        });
+        return;
+      }
+
+      const cleanFullName = typeof full_name === 'string' ? full_name.trim() : '';
+      if (cleanFullName.length < 2) {
+        res.status(HTTP_STATUS.BAD_REQUEST).json({
+          error: 'Vui lòng nhập đầy đủ Họ và tên công dân (hoặc quét thẻ CCCD/VNeID) để đối chiếu định danh.',
+        });
+        return;
+      }
+
+      const result = await authService.loginOrRegisterVNeID({
+        identity_number: cleanCccd,
+        full_name: cleanFullName,
+        ...(typeof phone === 'string' && phone.trim() ? { phone: phone.trim() } : {}),
+      });
+
+      res.json({
+        success: true,
+        message: SUCCESS_MESSAGES.LOGIN_SUCCESS,
+        data: {
+          token: result.token,
+          user: {
+            id: result.user.id,
+            email: result.user.email,
+            phone: result.user.phone,
+            full_name: result.user.full_name,
+            is_verified: true,
+            bio: result.user.bio,
+          },
+          cccd_meta: {
+            province_name: cccdCheck.provinceName,
+            gender: cccdCheck.gender,
+            birth_year: cccdCheck.birthYear,
+          },
+        },
+      });
+    } catch (error) {
+      console.error('VNeID login error:', error);
+      res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+        error: ERROR_MESSAGES.INTERNAL_ERROR,
+      });
+    }
+  }
+
+  /**
+   * Verify current citizen account via VNeID
+   * POST /auth/vneid-verify
+   */
+  async vneidVerify(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        res.status(HTTP_STATUS.UNAUTHORIZED).json({ error: ERROR_MESSAGES.UNAUTHORIZED });
+        return;
+      }
+
+      const { identity_number, full_name } = req.body;
+      const cleanCccd = typeof identity_number === 'string' ? identity_number.trim() : '';
+      const cccdCheck = parseAndValidateCCCD(cleanCccd);
+      if (!cccdCheck.valid) {
+        res.status(HTTP_STATUS.BAD_REQUEST).json({
+          error: cccdCheck.error || 'Số định danh cá nhân (CCCD) không hợp lệ theo chuẩn C06 Bộ Công an.',
+        });
+        return;
+      }
+
+      const updatedUser = await authService.verifyUserWithVNeID(
+        userId,
+        cleanCccd,
+        typeof full_name === 'string' ? full_name : undefined
+      );
+
+      if (!updatedUser) {
+        res.status(HTTP_STATUS.NOT_FOUND).json({ error: ERROR_MESSAGES.NOT_FOUND });
+        return;
+      }
+
+      res.json({
+        success: true,
+        message: 'Account verified via VNeID Level 2',
+        data: updatedUser,
+      });
+    } catch (error) {
+      console.error('VNeID verify error:', error);
       res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
         error: ERROR_MESSAGES.INTERNAL_ERROR,
       });

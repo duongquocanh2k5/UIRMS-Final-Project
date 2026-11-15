@@ -29,7 +29,7 @@ const ADMIN_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 function getStoredUser(): AdminUser {
-    const storedUser = localStorage.getItem('adminUser');
+    const storedUser = sessionStorage.getItem('adminUser');
     if (!storedUser) return fallbackUser;
 
     try {
@@ -43,52 +43,36 @@ function getStoredUser(): AdminUser {
 
 export function AuthProvider({ children }: { children: ReactNode }) {
     const [user, setUser] = useState<AdminUser>(() =>
-        localStorage.getItem('adminToken') ? getStoredUser() : fallbackUser
+        sessionStorage.getItem('adminToken') ? getStoredUser() : fallbackUser
     );
-    const [token, setToken] = useState<string | null>(() => localStorage.getItem('adminToken'));
+    const [token, setToken] = useState<string | null>(() => sessionStorage.getItem('adminToken'));
 
     useEffect(() => {
         const handleUnauthorized = () => {
-            localStorage.removeItem('adminLastActivity');
+            sessionStorage.removeItem('adminLastActivity');
             setUser(fallbackUser);
             setToken(null);
         };
-        const handleStorageChange = (event: StorageEvent) => {
-            if (event.key === 'adminToken') {
-                if (!event.newValue) {
-                    localStorage.removeItem('adminLastActivity');
-                    setUser(fallbackUser);
-                    setToken(null);
-                    return;
-                }
-                setToken(event.newValue);
-                setUser(getStoredUser());
-            } else if (event.key === 'adminUser') {
-                setUser(localStorage.getItem('adminToken') ? getStoredUser() : fallbackUser);
-            }
-        };
         window.addEventListener('admin:unauthorized', handleUnauthorized);
-        window.addEventListener('storage', handleStorageChange);
         return () => {
             window.removeEventListener('admin:unauthorized', handleUnauthorized);
-            window.removeEventListener('storage', handleStorageChange);
         };
     }, []);
 
     const login = async (email: string, password: string, role: AdminRole) => {
         const response = await adminApi.adminLogin(email, password, role);
         const nextUser = { id: response.data.user.id, email: response.data.user.email, username: response.data.user.username, name: response.data.user.full_name, role: response.data.user.role };
-        localStorage.setItem('adminUser', JSON.stringify(nextUser));
-        localStorage.setItem('adminToken', response.data.token);
-        localStorage.setItem('adminLastActivity', String(Date.now()));
+        sessionStorage.setItem('adminUser', JSON.stringify(nextUser));
+        sessionStorage.setItem('adminToken', response.data.token);
+        sessionStorage.setItem('adminLastActivity', String(Date.now()));
         setUser(nextUser);
         setToken(response.data.token);
     };
 
     const logout = useCallback(() => {
-        localStorage.removeItem('adminToken');
-        localStorage.removeItem('adminUser');
-        localStorage.removeItem('adminLastActivity');
+        sessionStorage.removeItem('adminToken');
+        sessionStorage.removeItem('adminUser');
+        sessionStorage.removeItem('adminLastActivity');
         setUser(fallbackUser);
         setToken(null);
     }, []);
@@ -98,7 +82,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         let idleTimer: number;
         const scheduleLogout = () => {
-            const lastActivity = Number(localStorage.getItem('adminLastActivity')) || Date.now();
+            const lastActivity = Number(sessionStorage.getItem('adminLastActivity')) || Date.now();
             const remaining = ADMIN_IDLE_TIMEOUT_MS - (Date.now() - lastActivity);
             if (remaining <= 0) {
                 logout();
@@ -109,26 +93,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         };
         const handleActivity = () => {
             const now = Date.now();
-            const lastActivity = Number(localStorage.getItem('adminLastActivity')) || 0;
-            if (now - lastActivity >= 1000) localStorage.setItem('adminLastActivity', String(now));
+            const lastActivity = Number(sessionStorage.getItem('adminLastActivity')) || 0;
+            if (now - lastActivity >= 1000) sessionStorage.setItem('adminLastActivity', String(now));
             scheduleLogout();
-        };
-        const handleStorageChange = (event: StorageEvent) => {
-            if (event.key === 'adminLastActivity') scheduleLogout();
-            if (event.key === 'adminToken' && event.newValue === null) logout();
         };
         const activityEvents = ['pointerdown', 'keydown', 'touchstart', 'mousemove'] as const;
 
-        if (!localStorage.getItem('adminLastActivity')) localStorage.setItem('adminLastActivity', String(Date.now()));
+        if (!sessionStorage.getItem('adminLastActivity')) sessionStorage.setItem('adminLastActivity', String(Date.now()));
         scheduleLogout();
         activityEvents.forEach((eventName) => window.addEventListener(eventName, handleActivity));
-        window.addEventListener('storage', handleStorageChange);
         document.addEventListener('visibilitychange', scheduleLogout);
 
         return () => {
             window.clearTimeout(idleTimer);
             activityEvents.forEach((eventName) => window.removeEventListener(eventName, handleActivity));
-            window.removeEventListener('storage', handleStorageChange);
             document.removeEventListener('visibilitychange', scheduleLogout);
         };
     }, [token, logout]);
@@ -152,7 +130,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const updateUser = useCallback((updates: Partial<AdminUser>) => {
         setUser((current) => {
             const nextUser = { ...current, ...updates };
-            localStorage.setItem('adminUser', JSON.stringify(nextUser));
+            sessionStorage.setItem('adminUser', JSON.stringify(nextUser));
             return nextUser;
         });
     }, []);

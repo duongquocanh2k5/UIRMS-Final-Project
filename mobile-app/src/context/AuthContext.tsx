@@ -23,6 +23,7 @@ interface AuthContextType {
   isLoading: boolean;
   isSignedIn: boolean;
   login: (email: string, password: string) => Promise<void>;
+  loginWithVNeID: (identityNumber: string, fullName?: string, phone?: string) => Promise<void>;
   register: (phone: string, email: string, password: string, fullName: string, identityNumber: string) => Promise<void>;
   updateUserLocal: (userData: Partial<User>) => Promise<void>;
   logout: () => Promise<void>;
@@ -103,6 +104,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const loginWithVNeID = async (identityNumber: string, fullName?: string, phone?: string) => {
+    const res = await apiClient.loginWithVNeID(identityNumber, fullName, phone);
+    if (res && res.success && res.data) {
+      const userData = res.data.user;
+      await AsyncStorage.setItem('userData', JSON.stringify(userData));
+      setUser(userData);
+      setIsSignedIn(true);
+    } else {
+      throw new Error(res?.message || 'Đăng nhập VNeID thất bại');
+    }
+  };
+
   const register = async (
     phone: string,
     email: string,
@@ -147,6 +160,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isLoading,
         isSignedIn,
         login,
+        loginWithVNeID,
         register,
         updateUserLocal,
         logout,

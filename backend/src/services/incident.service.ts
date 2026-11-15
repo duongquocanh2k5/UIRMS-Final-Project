@@ -207,7 +207,7 @@ export class IncidentService {
     incidentId: number,
     userId: number,
     imageUrl: string,
-    localFilePath: string
+    imageSource: string | { buffer: Buffer; mimeType: string }
   ): Promise<{ image_id: number; ai_analysis: AIAnalysisResult | null } | null> {
     const savedImage = await queryOne<{ id: number }>(
       `INSERT INTO incident_images (incident_id, image_url, uploaded_by)
@@ -220,53 +220,59 @@ export class IncidentService {
       return null;
     }
 
-    let analysis: AIAnalysisResult | null = null;
-    try {
-      const [incident, categories] = await Promise.all([
-        queryOne<{ title: string; description: string | null }>(
-          `SELECT title, description FROM incidents WHERE id = $1 AND deleted_at IS NULL;`,
-          [incidentId]
-        ),
-        query<{ id: number; name: string }>(
-          `SELECT id, name FROM categories ORDER BY id;`
-        ),
-      ]);
+    // Run AI vision analysis asynchronously in the background so image upload responds immediately
+    void (async () => {
+      try {
+        const [incident, categories] = await Promise.all([
+          queryOne<{ title: string; description: string | null; category_name: string | null }>(
+            `SELECT i.title, i.description, c.name AS category_name
+             FROM incidents i
+             LEFT JOIN categories c ON c.id = i.category_id
+             WHERE i.id = $1 AND i.deleted_at IS NULL;`,
+            [incidentId]
+          ),
+          query<{ id: number; name: string }>(
+            `SELECT id, name FROM categories ORDER BY id;`
+          ),
+        ]);
 
-      if (incident) {
-        analysis = await aiService.analyzeIncidentImage(
-          localFilePath,
+        if (!incident) return;
+
+        const analysis = await aiService.analyzeIncidentImage(
+          imageSource,
           incident.title,
           incident.description || undefined,
-          categories
+          categories,
+          incident.category_name || undefined
         );
-      }
 
-      if (analysis) {
-        try {
-          await query(
-            `UPDATE incident_images SET ai_analysis = $1::jsonb WHERE id = $2;`,
-            [JSON.stringify(analysis), savedImage.id]
-          );
-        } catch (error) {
-          console.error('Failed to save AI analysis for incident image:', error);
+        if (analysis) {
+          try {
+            await query(
+              `UPDATE incident_images SET ai_analysis = $1::jsonb WHERE id = $2;`,
+              [JSON.stringify(analysis), savedImage.id]
+            );
+          } catch (error) {
+            console.error('Failed to save AI analysis for incident image:', error);
+          }
+
+          try {
+            await query(
+              `UPDATE incidents
+               SET ai_confidence = $1, ai_suggested_category = $2, updated_at = NOW()
+               WHERE id = $3 AND deleted_at IS NULL;`,
+              [analysis.confidence, analysis.suggested_category_id, incidentId]
+            );
+          } catch (error) {
+            console.error('Failed to update incident with AI analysis:', error);
+          }
         }
-
-        try {
-          await query(
-            `UPDATE incidents
-             SET ai_confidence = $1, ai_suggested_category = $2, updated_at = NOW()
-             WHERE id = $3 AND deleted_at IS NULL;`,
-            [analysis.confidence, analysis.suggested_category_id, incidentId]
-          );
-        } catch (error) {
-          console.error('Failed to update incident with AI analysis:', error);
-        }
+      } catch (error) {
+        console.error('Failed to analyze uploaded incident image:', error);
       }
-    } catch (error) {
-      console.error('Failed to analyze uploaded incident image:', error);
-    }
+    })();
 
-    return { image_id: savedImage.id, ai_analysis: analysis };
+    return { image_id: savedImage.id, ai_analysis: null };
   }
 
   /**

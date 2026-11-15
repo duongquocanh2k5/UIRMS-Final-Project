@@ -4,6 +4,8 @@ import {
     Bar,
     BarChart,
     CartesianGrid,
+    Cell,
+    LabelList,
     Legend,
     Line,
     LineChart,
@@ -16,6 +18,7 @@ import * as XLSX from 'xlsx';
 import { useStatsData } from '../hooks/useStatsData';
 import type { CategoryMonthlyStats, StatsRange } from '../services/api';
 import { useLanguage } from '../context/LanguageContext';
+import { getCategoryColor } from '../utils/categoryColors';
 
 type Preset = '7d' | '30d' | '3m' | 'custom';
 
@@ -24,8 +27,6 @@ const presetOptions: Array<{ id: Exclude<Preset, 'custom'>; label: string; days?
     { id: '30d', label: '30 ngày', days: 30 },
     { id: '3m', label: '3 tháng' },
 ];
-
-const chartColors = ['#2E86DE', '#27AE60', '#E67E22', '#0A9E96', '#C0392B', '#8E7CC3', '#D4AC0D', '#546E7A'];
 
 function localDateString(date: Date): string {
     const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
@@ -50,18 +51,36 @@ function getPresetRange(preset: Exclude<Preset, 'custom'>): StatsRange {
     return { from: localDateString(from), to: localDateString(to) };
 }
 
-function transformCategoryMonthly(rows: CategoryMonthlyStats[]) {
-    const grouped = new Map<string, Record<string, string | number>>();
-    const categories = new Set<string>();
+function buildCategorySummary(rows: CategoryMonthlyStats[], translateCategory: (name: string) => string, selectedMonth: string) {
+    const filtered = selectedMonth === 'all' ? rows : rows.filter((row) => row.month === selectedMonth);
+    const totals = new Map<string, { rawName: string; name: string; total: number; color: string }>();
 
-    rows.forEach(({ month, category, total }) => {
-        const monthRow = grouped.get(month) ?? { month };
-        monthRow[category] = total;
-        grouped.set(month, monthRow);
-        categories.add(category);
+    filtered.forEach(({ category, total }) => {
+        const translated = translateCategory(category);
+        const existing = totals.get(translated);
+        const count = Number(total) || 0;
+        if (existing) {
+            existing.total += count;
+        } else {
+            totals.set(translated, {
+                rawName: category,
+                name: translated,
+                total: count,
+                color: getCategoryColor(undefined, category),
+            });
+        }
     });
 
-    return { data: Array.from(grouped.values()), categories: Array.from(categories) };
+    const items = Array.from(totals.values()).sort((a, b) => b.total - a.total);
+    const grandTotal = items.reduce((sum, item) => sum + item.total, 0);
+    return items.map((item) => ({
+        ...item,
+        share: grandTotal > 0 ? Math.round((item.total / grandTotal) * 100) : 0,
+    }));
+}
+
+function getAvailableMonths(rows: CategoryMonthlyStats[]): string[] {
+    return Array.from(new Set(rows.map((row) => row.month))).sort().reverse();
 }
 
 function formatMonth(month: string): string {
@@ -132,9 +151,13 @@ export default function Stats() {
     const [range, setRange] = useState<StatsRange>(() => getPresetRange('30d'));
     const [draftRange, setDraftRange] = useState(range);
     const [customOpen, setCustomOpen] = useState(false);
+    const [selectedMonth, setSelectedMonth] = useState<string>('all');
     const { overview, districts, categories, loading, error, retry } = useStatsData(range);
 
-    const categoryChart = transformCategoryMonthly((categories ?? []).map((row) => ({ ...row, category: translateCategory(row.category) })));
+    const availableMonths = getAvailableMonths(categories ?? []);
+    const activeMonthFilter = selectedMonth !== 'all' && availableMonths.includes(selectedMonth) ? selectedMonth : 'all';
+    const categorySummary = buildCategorySummary(categories ?? [], translateCategory, activeMonthFilter);
+    const totalCategoryReports = categorySummary.reduce((sum, item) => sum + item.total, 0);
     const maxDistrictTotal = Math.max(...(districts ?? []).map((item) => item.total), 0);
 
     function selectPreset(nextPreset: Exclude<Preset, 'custom'>) {
@@ -245,16 +268,88 @@ export default function Stats() {
                     </section>
 
                     <article className="rounded-xl border border-slate-200 bg-white shadow-sm">
-                        <div className="border-b border-slate-100 px-5 py-4"><h2 className="text-base font-bold text-neutral-900">{t('So sánh loại sự cố theo các tháng', 'Monthly Incident Category Comparison')}</h2><p className="mt-1 text-xs text-neutral-500">{t('Số lượng báo cáo theo danh mục và tháng', 'Report volume by category and month')}</p></div>
-                        <div className="h-[360px] p-4 sm:p-5">
-                            {categoryChart.data.length ? <ResponsiveContainer width="100%" height="100%"><BarChart data={categoryChart.data} margin={{ top: 8, right: 12, left: -18, bottom: 4 }}>
-                                <CartesianGrid vertical={false} stroke="#E8EEF1" />
-                                <XAxis dataKey="month" tickFormatter={formatMonth} tick={{ fill: '#7A8997', fontSize: 11 }} tickLine={false} axisLine={false} />
-                                <YAxis allowDecimals={false} tick={{ fill: '#7A8997', fontSize: 11 }} tickLine={false} axisLine={false} />
-                                <Tooltip labelFormatter={(label) => formatMonth(String(label))} />
-                                <Legend />
-                                {categoryChart.categories.map((category, index) => <Bar key={category} dataKey={category} name={category} fill={chartColors[index % chartColors.length]} radius={[3, 3, 0, 0]} />)}
-                            </BarChart></ResponsiveContainer> : <div className="flex h-full items-center justify-center text-sm text-neutral-500">{t('Chưa có dữ liệu danh mục trong khoảng thời gian này.', 'No category data available for this period.')}</div>}
+                        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
+                            <div>
+                                <h2 className="text-base font-bold text-neutral-900">
+                                    {t('Phân tích loại sự cố theo mức độ phổ biến', 'Incident Breakdown by Category')}
+                                </h2>
+                                <p className="mt-1 text-xs text-neutral-500">
+                                    {t(
+                                        `Xếp hạng từ cao xuống thấp (${totalCategoryReports.toLocaleString('vi-VN')} báo cáo)`,
+                                        `Ranked highest to lowest (${totalCategoryReports.toLocaleString('en-US')} reports)`
+                                    )}
+                                </p>
+                            </div>
+                            {availableMonths.length > 1 && (
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                    <button
+                                        type="button"
+                                        onClick={() => setSelectedMonth('all')}
+                                        className={`rounded-full px-3 py-1 text-xs font-semibold transition ${activeMonthFilter === 'all' ? 'bg-primary text-white' : 'bg-slate-100 text-neutral-600 hover:bg-slate-200'}`}
+                                    >
+                                        {t('Cả kỳ', 'All months')}
+                                    </button>
+                                    {availableMonths.map((month) => (
+                                        <button
+                                            key={month}
+                                            type="button"
+                                            onClick={() => setSelectedMonth(month)}
+                                            className={`rounded-full px-3 py-1 text-xs font-semibold transition ${activeMonthFilter === month ? 'bg-primary text-white' : 'bg-slate-100 text-neutral-600 hover:bg-slate-200'}`}
+                                        >
+                                            {formatMonth(month)}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                        <div className="p-4 sm:p-5">
+                            {categorySummary.length ? (
+                                <div style={{ height: Math.max(260, categorySummary.length * 42) }}>
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <BarChart
+                                            data={categorySummary}
+                                            layout="vertical"
+                                            margin={{ top: 4, right: 56, left: 8, bottom: 4 }}
+                                        >
+                                            <CartesianGrid horizontal={false} stroke="#E8EEF1" />
+                                            <XAxis type="number" allowDecimals={false} tick={{ fill: '#7A8997', fontSize: 11 }} tickLine={false} axisLine={false} />
+                                            <YAxis
+                                                type="category"
+                                                dataKey="name"
+                                                width={185}
+                                                tick={{ fill: '#334155', fontSize: 12, fontWeight: 600 }}
+                                                tickLine={false}
+                                                axisLine={false}
+                                            />
+                                            <Tooltip
+                                                formatter={(value: unknown) => [
+                                                    `${Number(value).toLocaleString('vi-VN')} ${t('báo cáo', 'reports')}`,
+                                                    t('Số lượng', 'Count'),
+                                                ]}
+                                            />
+                                            <Bar dataKey="total" barSize={22} radius={[0, 6, 6, 0]}>
+                                                {categorySummary.map((entry) => (
+                                                    <Cell key={entry.name} fill={entry.color} />
+                                                ))}
+                                                <LabelList
+                                                    dataKey="total"
+                                                    position="right"
+                                                    formatter={(value: unknown) => {
+                                                        const n = Number(value) || 0;
+                                                        const pct = totalCategoryReports > 0 ? Math.round((n / totalCategoryReports) * 100) : 0;
+                                                        return `${n} (${pct}%)`;
+                                                    }}
+                                                    style={{ fill: '#334155', fontSize: 12, fontWeight: 700 }}
+                                                />
+                                            </Bar>
+                                        </BarChart>
+                                    </ResponsiveContainer>
+                                </div>
+                            ) : (
+                                <div className="flex h-60 items-center justify-center text-sm text-neutral-500">
+                                    {t('Chưa có dữ liệu danh mục trong khoảng thời gian này.', 'No category data available for this period.')}
+                                </div>
+                            )}
                         </div>
                     </article>
                 </>

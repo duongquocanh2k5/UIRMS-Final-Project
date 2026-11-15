@@ -148,6 +148,34 @@ class ApiClient {
     return response.data;
   }
 
+  async scanVNeIDDocument(imageBase64: string, mimeType = 'image/jpeg') {
+    const response = await this.client.post('/auth/vneid-ekyc', {
+      image_base64: imageBase64,
+      mime_type: mimeType,
+    });
+    return response.data;
+  }
+
+  async loginWithVNeID(identityNumber: string, fullName?: string, phone?: string) {
+    const response = await this.client.post('/auth/vneid-login', {
+      identity_number: identityNumber,
+      full_name: fullName,
+      phone,
+    });
+    if (response.data.data?.token) {
+      await AsyncStorage.setItem('authToken', response.data.data.token);
+    }
+    return response.data;
+  }
+
+  async verifyWithVNeID(identityNumber: string, fullName?: string) {
+    const response = await this.client.post('/auth/vneid-verify', {
+      identity_number: identityNumber,
+      full_name: fullName,
+    });
+    return response.data;
+  }
+
   async getCategories(): Promise<{
     success: boolean;
     data: Array<{ id: number; name: string; icon: string | null }>;
@@ -234,13 +262,51 @@ class ApiClient {
     return response.data;
   }
 
-  async uploadIncidentImage(incidentId: number, imageUri: string) {
+  async uploadIncidentImage(incidentId: number, imageUri: string, imageBase64?: string) {
+    const cleanUri = imageUri.split('?')[0] || '';
+    const extMatch = cleanUri.match(/\.([a-zA-Z0-9]+)$/);
+    const rawExt = extMatch?.[1]?.toLowerCase();
+    const ext = rawExt === 'png' || rawExt === 'webp' || rawExt === 'gif' || rawExt === 'heic' ? rawExt : 'jpg';
+    const mimeType =
+      ext === 'png'
+        ? 'image/png'
+        : ext === 'webp'
+          ? 'image/webp'
+          : ext === 'gif'
+            ? 'image/gif'
+            : ext === 'heic'
+              ? 'image/heic'
+              : 'image/jpeg';
+    const fileName = `incident-${Date.now()}.${ext}`;
+
+    // Prefer JSON base64 via Axios (same transport as createIncident; avoids RN fetch/FormData issues on Android/iOS/Web)
+    if (imageBase64) {
+      try {
+        const res = await this.client.post(`/incidents/${incidentId}/images`, {
+          image_base64: imageBase64,
+          mime_type: mimeType,
+        });
+        return res.data;
+      } catch (axiosErr: any) {
+        // Fallback to multipart FormData only if an older server rejects JSON (400)
+        if (axiosErr?.response?.status !== 400) {
+          throw new Error(axiosErr?.response?.data?.error || axiosErr?.message || 'Upload failed');
+        }
+      }
+    }
+
     const formData = new FormData();
-    formData.append('image', {
-      uri: imageUri,
-      name: `incident-${Date.now()}.jpg`,
-      type: 'image/jpeg',
-    } as any);
+    if (Platform.OS === 'web' || imageUri.startsWith('data:') || imageUri.startsWith('blob:')) {
+      const fileResponse = await fetch(imageUri);
+      const blob = await fileResponse.blob();
+      formData.append('image', blob, fileName);
+    } else {
+      formData.append('image', {
+        uri: imageUri,
+        name: fileName,
+        type: mimeType,
+      } as any);
+    }
 
     const token = await AsyncStorage.getItem('authToken');
     const response = await fetch(`${API_BASE_URL}/incidents/${incidentId}/images`, {

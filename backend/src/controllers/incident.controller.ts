@@ -127,21 +127,40 @@ export class IncidentController {
       const userId = req.user?.id;
       const incidentId = parseInt(req.params.incidentId as string, 10);
       const file = req.file;
+      const rawBase64 = typeof req.body?.image_base64 === 'string' ? req.body.image_base64.trim() : '';
 
-      if (!userId || !file) {
+      if (!userId || (!file && !rawBase64)) {
         res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'The uploaded image is invalid.' });
         return;
       }
 
-      let imageUrl = `/uploads/incidents/${file.filename}`;
-      try {
-        const fileBuffer = fs.readFileSync(file.path);
-        const mimeType = file.mimetype || 'image/jpeg';
-        imageUrl = `data:${mimeType};base64,${fileBuffer.toString('base64')}`;
-      } catch {
-        // Fallback to static path if file read fails
+      let imageUrl = '';
+      let imageSource: string | { buffer: Buffer; mimeType: string };
+
+      if (file) {
+        imageUrl = `/uploads/incidents/${file.filename}`;
+        try {
+          const fileBuffer = fs.readFileSync(file.path);
+          const mimeType = file.mimetype || 'image/jpeg';
+          imageUrl = `data:${mimeType};base64,${fileBuffer.toString('base64')}`;
+        } catch {
+          // Fallback to static path if file read fails
+        }
+        imageSource = file.path;
+      } else {
+        const dataUrlMatch = rawBase64.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
+        const mimeType = dataUrlMatch?.[1] || (typeof req.body?.mime_type === 'string' && req.body.mime_type.startsWith('image/') ? req.body.mime_type : 'image/jpeg');
+        const base64Data = dataUrlMatch?.[2] || rawBase64;
+        const buffer = Buffer.from(base64Data, 'base64');
+        if (!buffer.length) {
+          res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'The uploaded image is invalid.' });
+          return;
+        }
+        imageUrl = `data:${mimeType};base64,${buffer.toString('base64')}`;
+        imageSource = { buffer, mimeType };
       }
-      const saved = await incidentService.addIncidentImage(incidentId, userId, imageUrl, file.path);
+
+      const saved = await incidentService.addIncidentImage(incidentId, userId, imageUrl, imageSource);
       if (!saved) {
         res.status(HTTP_STATUS.NOT_FOUND).json({ error: ERROR_MESSAGES.NOT_FOUND });
         return;

@@ -1,6 +1,6 @@
 import { AlertTriangle, CheckCircle2, Clock3, Compass, FileText, RefreshCw, Siren, UserCheck, Users } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { CircleMarker, MapContainer, Popup } from 'react-leaflet';
+import { CircleMarker, MapContainer, Popup, useMap } from 'react-leaflet';
 import { Link } from 'react-router-dom';
 import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import 'leaflet/dist/leaflet.css';
@@ -63,6 +63,16 @@ function badgeClass(value: string) {
     return 'bg-blue-50 text-info';
 }
 
+function DashboardMapFocus({ target }: { target: { lat: number; lng: number; zoom: number; trigger: number } | null }) {
+    const map = useMap();
+    useEffect(() => {
+        if (target && Number.isFinite(target.lat) && Number.isFinite(target.lng)) {
+            map.flyTo([target.lat, target.lng], Math.max(map.getZoom(), target.zoom), { duration: 0.75 });
+        }
+    }, [map, target]);
+    return null;
+}
+
 export default function Dashboard() {
     const { user } = useAuth();
     const { t, translateCategory } = useLanguage();
@@ -76,6 +86,7 @@ export default function Dashboard() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [mapFilter, setMapFilter] = useState<'all' | AdminIncident['status'] | 'critical'>('all');
+    const [mapFocus, setMapFocus] = useState<{ lat: number; lng: number; zoom: number; trigger: number } | null>(null);
 
     const loadDashboard = async () => {
         setLoading(true); setError('');
@@ -83,14 +94,32 @@ export default function Dashboard() {
             const [statsResponse, incidentsResponse, analyticsResponse, staffResponse] = await Promise.all([
                 adminApi.getDashboardStats(),
                 adminApi.getIncidents(1, 100),
-                adminApi.getAnalytics('week'),
+                adminApi.getAnalytics('month'),
                 canManage ? adminApi.getAssignableStaff().catch(() => ({ data: [] as AssignableAdmin[] })) : Promise.resolve({ data: [] as AssignableAdmin[] }),
             ]);
             setStats(statsResponse.data);
             setIncidents(incidentsResponse.data);
             setStaffList(staffResponse.data.filter((person) => person.role === 'technician'));
             const analytics = analyticsResponse.data as { incidents?: Array<{ date: string; count: number; completed: number }> };
-            setChartData(analytics.incidents || []);
+            const countsByDate = new Map<string, { count: number; completed: number }>();
+            (analytics.incidents || []).forEach((item) => {
+                countsByDate.set(item.date, { count: Number(item.count) || 0, completed: Number(item.completed) || 0 });
+            });
+            const last30Days: Array<{ date: string; count: number; completed: number }> = [];
+            const now = new Date();
+            for (let i = 29; i >= 0; i--) {
+                const d = new Date(now);
+                d.setDate(now.getDate() - i);
+                const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                const shortLabel = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
+                const entry = countsByDate.get(iso);
+                last30Days.push({
+                    date: shortLabel,
+                    count: entry?.count ?? 0,
+                    completed: entry?.completed ?? 0,
+                });
+            }
+            setChartData(last30Days);
         } catch (reason) { setError(reason instanceof Error ? reason.message : t('Không thể tải dữ liệu dashboard.', 'Could not load dashboard data.')); }
         finally { setLoading(false); }
     };
@@ -132,19 +161,19 @@ export default function Dashboard() {
     const statCards = useMemo(() => {
         if (isTechnician) {
             return [
-                { key: 'total', value: stats?.totalIncidents ?? 0, label: t('Tổng Việc Được Giao', 'Total Assigned'), icon: FileText, tone: 'bg-blue-50 text-info' },
-                { key: 'assigned', value: (stats?.newIncidents ?? 0) + (stats?.assignedIncidents ?? 0), label: t('Chờ Bắt Đầu', 'Ready to Start'), icon: UserCheck, tone: 'bg-amber-50 text-warning' },
-                { key: 'inProgress', value: stats?.inProgressIncidents ?? 0, label: t('Đang Xử Lý', 'In Progress'), icon: Clock3, tone: 'bg-orange-50 text-warning' },
-                { key: 'completed', value: stats?.completedIncidents ?? 0, label: t('Đã Hoàn Tất', 'Completed'), icon: CheckCircle2, tone: 'bg-green-50 text-success' },
-                { key: 'urgent', value: stats?.urgentIncidents ?? 0, label: t('Khẩn Cấp', 'Critical'), icon: Siren, tone: 'bg-red-50 text-danger', urgent: true },
+                { key: 'total', value: stats?.totalIncidents ?? 0, label: t('Tổng Việc Được Giao', 'Total Assigned'), icon: FileText, tone: 'bg-blue-50 text-info', to: '/incidents' },
+                { key: 'assigned', value: (stats?.newIncidents ?? 0) + (stats?.assignedIncidents ?? 0), label: t('Chờ Bắt Đầu', 'Ready to Start'), icon: UserCheck, tone: 'bg-amber-50 text-warning', to: '/incidents?status=assigned' },
+                { key: 'inProgress', value: stats?.inProgressIncidents ?? 0, label: t('Đang Xử Lý', 'In Progress'), icon: Clock3, tone: 'bg-orange-50 text-warning', to: '/incidents?status=in_progress' },
+                { key: 'completed', value: stats?.completedIncidents ?? 0, label: t('Đã Hoàn Tất', 'Completed'), icon: CheckCircle2, tone: 'bg-green-50 text-success', to: '/incidents?status=completed' },
+                { key: 'urgent', value: stats?.urgentIncidents ?? 0, label: t('Khẩn Cấp', 'Critical'), icon: Siren, tone: 'bg-red-50 text-danger', urgent: true, to: '/incidents?priority=critical' },
             ];
         }
         return [
-            { key: 'total', value: stats?.totalIncidents ?? 0, label: t('Tổng Báo Cáo', 'Total Reports'), icon: FileText, tone: 'bg-blue-50 text-info' },
-            { key: 'unassigned', value: unassignedCount, label: t('Chưa Phân Công', 'Unassigned'), icon: AlertTriangle, tone: 'bg-amber-50 text-warning' },
-            { key: 'inProgress', value: stats?.inProgressIncidents ?? 0, label: t('Đang Xử Lý', 'In Progress'), icon: Clock3, tone: 'bg-orange-50 text-warning' },
-            { key: 'completed', value: stats?.completedIncidents ?? 0, label: t('Hoàn Tất', 'Completed'), icon: CheckCircle2, tone: 'bg-green-50 text-success' },
-            { key: 'urgent', value: stats?.urgentIncidents ?? 0, label: t('Khẩn Cấp', 'Critical'), icon: Siren, tone: 'bg-red-50 text-danger', urgent: true },
+            { key: 'total', value: stats?.totalIncidents ?? 0, label: t('Tổng Báo Cáo', 'Total Reports'), icon: FileText, tone: 'bg-blue-50 text-info', to: '/incidents' },
+            { key: 'unassigned', value: unassignedCount, label: t('Chưa Phân Công', 'Unassigned'), icon: AlertTriangle, tone: 'bg-amber-50 text-warning', to: '/incidents?quick=unassigned' },
+            { key: 'inProgress', value: stats?.inProgressIncidents ?? 0, label: t('Đang Xử Lý', 'In Progress'), icon: Clock3, tone: 'bg-orange-50 text-warning', to: '/incidents?status=in_progress' },
+            { key: 'completed', value: stats?.completedIncidents ?? 0, label: t('Hoàn Tất', 'Completed'), icon: CheckCircle2, tone: 'bg-green-50 text-success', to: '/incidents?status=completed' },
+            { key: 'urgent', value: stats?.urgentIncidents ?? 0, label: t('Khẩn Cấp', 'Critical'), icon: Siren, tone: 'bg-red-50 text-danger', urgent: true, to: '/incidents?priority=critical' },
         ];
     }, [isTechnician, stats, t, unassignedCount]);
 
@@ -169,16 +198,20 @@ export default function Dashboard() {
         </div>
 
         <section className="grid grid-cols-5 gap-4">
-            {statCards.map(({ key, value, label, icon: Icon, tone, urgent }) => (
-                <article key={key} className={`rounded-xl border bg-white p-5 shadow-sm ${urgent ? 'border-danger/50 ring-1 ring-danger/10' : 'border-slate-200'}`}>
+            {statCards.map(({ key, value, label, icon: Icon, tone, urgent, to }) => (
+                <Link
+                    key={key}
+                    to={to}
+                    className={`group block rounded-xl border bg-white p-5 shadow-sm transition duration-150 hover:-translate-y-0.5 hover:shadow-md ${urgent ? 'border-danger/50 ring-1 ring-danger/10 hover:border-danger' : 'border-slate-200 hover:border-primary/40'}`}
+                >
                     <div className="flex items-center gap-4">
-                        <div className={`flex h-11 w-11 items-center justify-center rounded-full ${tone}`}><Icon size={21} /></div>
-                        <div>
-                            <p className="text-xs font-medium text-neutral-500">{label}</p>
+                        <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-transform group-hover:scale-105 ${tone}`}><Icon size={21} /></div>
+                        <div className="min-w-0 flex-1">
+                            <p className="text-xs font-medium text-neutral-500 group-hover:text-neutral-700">{label}</p>
                             <p className="mt-1 text-2xl font-bold text-neutral-900">{value.toLocaleString('vi-VN')}</p>
                         </div>
                     </div>
-                </article>
+                </Link>
             ))}
         </section>
 
@@ -303,12 +336,30 @@ export default function Dashboard() {
                     ))}
                 </div>
                 <div className="h-[390px]">
-                    <MapContainer center={[10.7769, 106.7009]} zoom={12} scrollWheelZoom={false} className="h-full w-full">
+                    <MapContainer center={[10.7769, 106.7009]} zoom={12} scrollWheelZoom className="h-full w-full">
                         <TileLayer attribution="&copy; OpenStreetMap contributors" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                        <DashboardMapFocus target={mapFocus} />
                         {filteredIncidents.filter((incident) => incident.latitude !== undefined && incident.longitude !== undefined).map((incident) => {
                             const dotColor = getCategoryColor(incident.category_id, incident.category_name);
+                            const lat = Number(incident.latitude);
+                            const lng = Number(incident.longitude);
                             return (
-                                <CircleMarker key={incident.id} center={[incident.latitude!, incident.longitude!]} radius={8} pathOptions={{ color: '#fff', weight: 2.2, fillColor: dotColor, fillOpacity: 0.95 }}>
+                                <CircleMarker
+                                    key={incident.id}
+                                    center={[lat, lng]}
+                                    radius={8}
+                                    pathOptions={{ color: '#fff', weight: 2.2, fillColor: dotColor, fillOpacity: 0.95 }}
+                                    eventHandlers={{
+                                        click: () => {
+                                            setMapFocus((prev) => ({
+                                                lat,
+                                                lng,
+                                                zoom: 17,
+                                                trigger: (prev?.trigger ?? 0) + 1,
+                                            }));
+                                        },
+                                    }}
+                                >
                                     <Popup>
                                         <div className="min-w-52 space-y-2">
                                             <div className="flex items-center justify-between gap-3">
@@ -354,19 +405,43 @@ export default function Dashboard() {
             </article>
 
             <div className="space-y-6">
-                <article className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-                    <h2 className="text-base font-bold text-neutral-900">{t('Báo cáo theo thời gian', 'Reports Over Time')}</h2>
-                    <div className="mt-4 h-48">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={chartData} margin={{ left: -25, right: 5 }}>
-                                <CartesianGrid vertical={false} stroke="#E8EEF1" />
-                                <XAxis dataKey="date" hide />
-                                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#7A8997' }} />
-                                <Tooltip />
-                                <Bar dataKey="count" name={t('Báo cáo', 'Reports')} fill="#0A9E96" radius={[4, 4, 0, 0]} />
-                            </BarChart>
-                        </ResponsiveContainer>
+                <article className={`rounded-xl border border-slate-200 bg-white p-5 shadow-sm ${canManage ? 'transition hover:border-primary/40 hover:shadow-md' : ''}`}>
+                    <div className="flex items-center justify-between gap-2">
+                        <div>
+                            <h2 className="text-base font-bold text-neutral-900">{t('Báo cáo theo thời gian (30 ngày)', 'Reports Over Time (30 Days)')}</h2>
+                            <p className="mt-0.5 text-xs text-neutral-500">{t('Thống kê số lượng báo cáo trong 1 tháng gần nhất', 'Daily incident volume over the past month')}</p>
+                        </div>
+                        {canManage && (
+                            <Link to="/stats" className="shrink-0 text-xs font-bold text-primary hover:underline">
+                                {t('Xem thống kê →', 'View stats →')}
+                            </Link>
+                        )}
                     </div>
+                    {canManage ? (
+                        <Link to="/stats" className="mt-4 block h-48 cursor-pointer" title={t('Mở trang Thống kê chi tiết', 'Open detailed Statistics')}>
+                            <ResponsiveContainer width="100%" height="100%">
+                                <BarChart data={chartData} margin={{ left: -25, right: 5 }}>
+                                    <CartesianGrid vertical={false} stroke="#E8EEF1" />
+                                    <XAxis dataKey="date" axisLine={false} tickLine={false} interval={4} tick={{ fontSize: 10, fill: '#7A8997' }} />
+                                    <YAxis allowDecimals={false} axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#7A8997' }} />
+                                    <Tooltip />
+                                    <Bar dataKey="count" name={t('Báo cáo', 'Reports')} fill="#0A9E96" radius={[3, 3, 0, 0]} />
+                                </BarChart>
+                            </ResponsiveContainer>
+                        </Link>
+                    ) : (
+                        <div className="mt-4 h-48">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <BarChart data={chartData} margin={{ left: -25, right: 5 }}>
+                                    <CartesianGrid vertical={false} stroke="#E8EEF1" />
+                                    <XAxis dataKey="date" axisLine={false} tickLine={false} interval={4} tick={{ fontSize: 10, fill: '#7A8997' }} />
+                                    <YAxis allowDecimals={false} axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#7A8997' }} />
+                                    <Tooltip />
+                                    <Bar dataKey="count" name={t('Báo cáo', 'Reports')} fill="#0A9E96" radius={[3, 3, 0, 0]} />
+                                </BarChart>
+                            </ResponsiveContainer>
+                        </div>
+                    )}
                 </article>
 
                 <article className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">

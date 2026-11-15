@@ -1,8 +1,9 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
     Image,
+    Platform,
     ScrollView,
     StyleSheet,
     Text,
@@ -146,6 +147,31 @@ const PRIORITIES = [
 ];
 const DEFAULT_COORDINATES = { latitude: 10.7769, longitude: 106.7009 };
 const INITIAL_VISIBLE_CATEGORIES = 9;
+const MAX_PHOTOS = 5;
+
+const VOICE_DICTATION_PHRASES = [
+    {
+        vi: 'Sự cố xảy ra vừa mới đây, gây cản trở lưu thông qua khu vực.',
+        en: 'The incident just occurred and is obstructing traffic in the area.',
+    },
+    {
+        vi: 'Khu vực đông người qua lại, rất nguy hiểm vào ban đêm hoặc khi trời mưa.',
+        en: 'High-traffic area, very dangerous at night or during rain.',
+    },
+    {
+        vi: 'Mức độ hư hỏng đang lan rộng, cần rào chắn cảnh báo sớm.',
+        en: 'Damage is spreading and needs warning barriers soon.',
+    },
+    {
+        vi: 'Mong cơ quan chức năng sớm cử nhân viên kiểm tra và khắc phục.',
+        en: 'Please dispatch a crew to inspect and resolve this soon.',
+    },
+];
+
+interface SelectedPhoto {
+    uri: string;
+    base64?: string | null;
+}
 
 export default function ReportIncidentScreen({ navigation, route }: any) {
     const { language, t, translateCategory } = useLanguage();
@@ -158,7 +184,11 @@ export default function ReportIncidentScreen({ navigation, route }: any) {
     const [showAllCategories, setShowAllCategories] = useState(false);
     const [categorySearch, setCategorySearch] = useState('');
     const [priority, setPriority] = useState('medium');
-    const [imageUri, setImageUri] = useState<string | null>(null);
+    const [photos, setPhotos] = useState<SelectedPhoto[]>([]);
+    const [isListening, setIsListening] = useState(false);
+    const [voiceStatusText, setVoiceStatusText] = useState('');
+    const descriptionInputRef = useRef<any>(null);
+    const speechRecognitionRef = useRef<any>(null);
     const [coordinates, setCoordinates] = useState(DEFAULT_COORDINATES);
     const [loading, setLoading] = useState(false);
     const [gettingLocation, setGettingLocation] = useState(true);
@@ -166,6 +196,15 @@ export default function ReportIncidentScreen({ navigation, route }: any) {
     useEffect(() => {
         void getLocation();
         void loadCategories();
+        return () => {
+            if (speechRecognitionRef.current) {
+                try {
+                    speechRecognitionRef.current.stop();
+                } catch {
+                    // ignore cleanup errors
+                }
+            }
+        };
     }, []);
 
     const loadCategories = async () => {
@@ -278,6 +317,17 @@ export default function ReportIncidentScreen({ navigation, route }: any) {
     };
 
     const chooseImage = async (useCamera: boolean) => {
+        if (photos.length >= MAX_PHOTOS) {
+            Alert.alert(
+                t('Đã đạt giới hạn ảnh', 'Photo limit reached'),
+                t(
+                    `Bạn có thể đính kèm tối đa ${MAX_PHOTOS} ảnh cho mỗi báo cáo.`,
+                    `You can attach up to ${MAX_PHOTOS} photos per report.`
+                )
+            );
+            return;
+        }
+
         const permission = useCamera
             ? await ImagePicker.requestCameraPermissionsAsync()
             : await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -290,28 +340,182 @@ export default function ReportIncidentScreen({ navigation, route }: any) {
             );
             return;
         }
+
+        const remainingSlots = MAX_PHOTOS - photos.length;
         const result = useCamera
             ? await ImagePicker.launchCameraAsync({
                 mediaTypes: ['images'],
-                quality: 0.8,
+                quality: 0.7,
+                base64: true,
                 allowsEditing: true,
                 aspect: [4, 3],
             })
             : await ImagePicker.launchImageLibraryAsync({
                 mediaTypes: ['images'],
-                quality: 0.8,
-                allowsEditing: true,
-                aspect: [4, 3],
+                quality: 0.7,
+                base64: true,
+                allowsMultipleSelection: true,
+                selectionLimit: remainingSlots,
             });
-        if (!result.canceled && result.assets[0]) setImageUri(result.assets[0].uri);
+
+        if (!result.canceled && result.assets && result.assets.length > 0) {
+            const addedPhotos: SelectedPhoto[] = result.assets
+                .slice(0, remainingSlots)
+                .map((asset) => ({
+                    uri: asset.uri,
+                    base64: asset.base64 || null,
+                }));
+
+            setPhotos((prev) => {
+                const existingUris = new Set(prev.map((item) => item.uri));
+                const uniqueNew = addedPhotos.filter((item) => !existingUris.has(item.uri));
+                return [...prev, ...uniqueNew].slice(0, MAX_PHOTOS);
+            });
+        }
     };
 
-    const showImageOptions = () =>
-        Alert.alert(t('Thêm ảnh hiện trường', 'Add Incident Photo'), t('Chọn nguồn ảnh', 'Choose a photo source'), [
-            { text: t('Chụp ảnh', 'Take Photo'), onPress: () => void chooseImage(true) },
-            { text: t('Chọn từ thư viện', 'Choose from Library'), onPress: () => void chooseImage(false) },
-            { text: t('Hủy', 'Cancel'), style: 'cancel' },
-        ]);
+    const removePhotoAt = (index: number) => {
+        setPhotos((prev) => prev.filter((_, idx) => idx !== index));
+    };
+
+    const showImageOptions = () => {
+        if (photos.length >= MAX_PHOTOS) {
+            Alert.alert(
+                t('Đã đạt giới hạn ảnh', 'Photo limit reached'),
+                t(
+                    `Bạn đã chọn tối đa ${MAX_PHOTOS} ảnh. Hãy xóa bớt nếu muốn chọn ảnh khác.`,
+                    `You have selected the maximum of ${MAX_PHOTOS} photos. Remove one to add another.`
+                )
+            );
+            return;
+        }
+        Alert.alert(
+            t('Thêm ảnh hiện trường', 'Add Incident Photos'),
+            t(
+                `Đã chọn ${photos.length}/${MAX_PHOTOS} ảnh. Bạn có thể chọn nhiều ảnh cùng lúc từ thư viện.`,
+                `Selected ${photos.length}/${MAX_PHOTOS} photos. You can pick multiple photos from your library.`
+            ),
+            [
+                { text: t('Chụp ảnh mới', 'Take Photo'), onPress: () => void chooseImage(true) },
+                { text: t('Chọn nhiều ảnh từ thư viện', 'Choose Multiple from Library'), onPress: () => void chooseImage(false) },
+                { text: t('Hủy', 'Cancel'), style: 'cancel' },
+            ]
+        );
+    };
+
+    const appendSpokenPhrase = (textToAppend: string) => {
+        const clean = textToAppend.trim();
+        if (!clean) return;
+        setDescription((prev) => {
+            const trimmed = prev.trim();
+            if (!trimmed) return clean;
+            const separator = /[.!?]$/.test(trimmed) ? ' ' : '. ';
+            return `${trimmed}${separator}${clean}`;
+        });
+    };
+
+    const composeSmartVoiceDescription = () => {
+        const categoryLabel = translateCategory(selectedCategoryItem?.name || '');
+        const issueText = title.trim() || categoryLabel;
+        const addrText = location.trim() || district.trim() || t('khu vực đã đánh dấu GPS', 'the GPS-marked area');
+        const severityVi = priority === 'high' ? 'nghiêm trọng, cần xử lý khẩn cấp' : priority === 'low' ? 'nhẹ' : 'trung bình';
+        const severityEn = priority === 'high' ? 'severe and requires urgent attention' : priority === 'low' ? 'minor' : 'moderate';
+
+        const generated =
+            language === 'en'
+                ? `Recorded "${issueText}" (${categoryLabel}) at ${addrText}. The impact level is ${severityEn}. Please inspect and resolve.`
+                : `Ghi nhận sự cố "${issueText}" (${categoryLabel}) tại ${addrText}. Mức độ ảnh hưởng ${severityVi}, đề nghị cơ quan chức năng kiểm tra và xử lý sớm.`;
+
+        setDescription(generated);
+        setVoiceStatusText(
+            t(
+                'Đã tự động chuyển thông tin sự cố thành câu mô tả chi tiết.',
+                'Automatically composed description from incident details.'
+            )
+        );
+    };
+
+    const toggleVoiceDictation = () => {
+        if (isListening) {
+            if (speechRecognitionRef.current) {
+                try {
+                    speechRecognitionRef.current.stop();
+                } catch {
+                    // ignore
+                }
+            }
+            setIsListening(false);
+            setVoiceStatusText('');
+            return;
+        }
+
+        // Check Web Speech API availability (works on Web / Chrome / Edge / Safari)
+        const globalAny = typeof window !== 'undefined' ? (window as any) : null;
+        const SpeechRecognitionCtor =
+            globalAny?.SpeechRecognition || globalAny?.webkitSpeechRecognition;
+
+        if (SpeechRecognitionCtor) {
+            try {
+                const recognition = new SpeechRecognitionCtor();
+                recognition.lang = language === 'en' ? 'en-US' : 'vi-VN';
+                recognition.continuous = false;
+                recognition.interimResults = false;
+
+                recognition.onstart = () => {
+                    setIsListening(true);
+                    setVoiceStatusText(
+                        t('Đang nghe qua micro... Hãy nói mô tả sự cố của bạn.', 'Listening via microphone... Speak your incident description.')
+                    );
+                };
+
+                recognition.onresult = (event: any) => {
+                    const transcript = Array.from(event.results || [])
+                        .map((res: any) => res?.[0]?.transcript || '')
+                        .join(' ')
+                        .trim();
+                    if (transcript) {
+                        appendSpokenPhrase(transcript);
+                        setVoiceStatusText(
+                            t(`Đã nhận giọng nói: "${transcript}"`, `Transcribed: "${transcript}"`)
+                        );
+                    }
+                };
+
+                recognition.onerror = () => {
+                    setVoiceStatusText(
+                        t(
+                            'Hãy bấm biểu tượng 🎙️ trên bàn phím hoặc chọn mẫu câu giọng nói nhanh bên dưới.',
+                            'Tap the 🎙️ key on your keyboard or select a quick spoken phrase below.'
+                        )
+                    );
+                };
+
+                recognition.onend = () => {
+                    setIsListening(false);
+                };
+
+                speechRecognitionRef.current = recognition;
+                recognition.start();
+                return;
+            } catch {
+                // Fall back to mobile dictation helper below
+            }
+        }
+
+        // Native mobile (iOS / Android): Focus input to bring up native keyboard mic + open quick voice dictation bar
+        setIsListening(true);
+        setVoiceStatusText(
+            Platform.OS === 'web'
+                ? t('Chế độ nhập giọng nói nhanh đang bật.', 'Quick voice dictation mode enabled.')
+                : t(
+                    'Đã bật chế độ giọng nói: Hãy bấm nút Micro (🎙️) trên bàn phím điện thoại để đọc tiếng Việt, hoặc chạm câu mẫu bên dưới.',
+                    'Voice mode active: Tap the Microphone (🎙️) key on your phone keyboard to dictate, or tap a phrase below.'
+                )
+        );
+        setTimeout(() => {
+            descriptionInputRef.current?.focus();
+        }, 120);
+    };
 
     const handleSubmit = async () => {
         if (!title.trim()) {
@@ -331,14 +535,36 @@ export default function ReportIncidentScreen({ navigation, route }: any) {
                 priority: priority as 'low' | 'medium' | 'high',
             });
             const incidentId = response.data?.id;
-            if (imageUri && incidentId) await apiClient.uploadIncidentImage(incidentId, imageUri);
+            if (photos.length > 0 && incidentId) {
+                let uploadedCount = 0;
+                let lastUploadError: any = null;
+                for (const photo of photos) {
+                    try {
+                        await apiClient.uploadIncidentImage(incidentId, photo.uri, photo.base64 || undefined);
+                        uploadedCount += 1;
+                    } catch (uploadError: any) {
+                        lastUploadError = uploadError;
+                    }
+                }
+                if (uploadedCount < photos.length) {
+                    Alert.alert(
+                        t('Đã tạo báo cáo nhưng lỗi tải một số ảnh', 'Report Created, Some Photos Failed'),
+                        t(
+                            `Đã tải lên ${uploadedCount}/${photos.length} ảnh. ${lastUploadError?.message || 'Vui lòng kiểm tra kết nối.'}`,
+                            `Uploaded ${uploadedCount}/${photos.length} photos. ${lastUploadError?.message || 'Please check your connection.'}`
+                        ),
+                        [{ text: t('Xong', 'Done'), onPress: () => navigation.goBack() }]
+                    );
+                    return;
+                }
+            }
             Alert.alert(t('Đã gửi báo cáo', 'Report Submitted'), t('Cảm ơn bạn đã góp phần xây dựng đô thị tốt hơn.', 'Thank you for helping improve our city.'), [
                 { text: t('Xong', 'Done'), onPress: () => navigation.goBack() },
             ]);
         } catch (error: any) {
             Alert.alert(
                 t('Gửi báo cáo thất bại', 'Report Submission Failed'),
-                error.response?.data?.error || t('Vui lòng kiểm tra kết nối và thử lại.', 'Check your connection and try again.')
+                error?.response?.data?.error || error?.message || t('Vui lòng kiểm tra kết nối và thử lại.', 'Check your connection and try again.')
             );
         } finally {
             setLoading(false);
@@ -512,44 +738,182 @@ export default function ReportIncidentScreen({ navigation, route }: any) {
                     editable={!loading}
                 />
 
-                <Text style={styles.sectionLabel}>
-                    {t('Hình ảnh hiện trường', 'Incident Photo')} <Text style={styles.optional}>{t('(khuyên dùng để AI thẩm định)', '(recommended for AI assessment)')}</Text>
-                </Text>
-                <TouchableOpacity
-                    style={styles.photoBox}
-                    onPress={showImageOptions}
-                    disabled={loading}
-                >
-                    {imageUri ? (
-                        <Image source={{ uri: imageUri }} style={styles.previewImage} />
-                    ) : (
-                        <>
-                            <Ionicons name="camera-outline" size={28} color="#0CA29B" style={{ marginBottom: 5 }} />
-                            <Text style={styles.photoTitle}>{t('Tải lên hoặc chụp ảnh trực tiếp', 'Upload or take a photo')}</Text>
-                            <Text style={styles.photoHint}>
-                                {t('Ảnh giúp cơ quan xử lý và AI xác minh nhanh hơn', 'Photos help response teams and AI verify the incident faster')}
-                            </Text>
-                        </>
+                <View style={styles.photoHeaderRow}>
+                    <Text style={styles.sectionLabel}>
+                        {t('Hình ảnh hiện trường', 'Incident Photos')}{' '}
+                        <Text style={styles.optional}>
+                            {t(`(Đã chọn ${photos.length}/${MAX_PHOTOS} ảnh)`, `(${photos.length}/${MAX_PHOTOS} selected)`)}
+                        </Text>
+                    </Text>
+                    {photos.length > 0 && (
+                        <TouchableOpacity onPress={() => setPhotos([])} disabled={loading}>
+                            <Text style={styles.removePhotoText}>{t('Xóa tất cả', 'Clear all')}</Text>
+                        </TouchableOpacity>
                     )}
-                </TouchableOpacity>
-                {imageUri && (
-                    <TouchableOpacity onPress={() => setImageUri(null)} style={styles.removePhoto}>
-                        <Text style={styles.removePhotoText}>{t('Xóa ảnh và chọn lại', 'Remove photo and choose another')}</Text>
+                </View>
+
+                {photos.length === 0 ? (
+                    <TouchableOpacity
+                        style={styles.photoBox}
+                        onPress={showImageOptions}
+                        disabled={loading}
+                    >
+                        <Ionicons name="images-outline" size={28} color="#0CA29B" style={{ marginBottom: 5 }} />
+                        <Text style={styles.photoTitle}>
+                            {t('Tải lên nhiều ảnh hoặc chụp trực tiếp (tối đa 5 ảnh)', 'Upload multiple photos or take a photo (up to 5)')}
+                        </Text>
+                        <Text style={styles.photoHint}>
+                            {t('Nhiều góc chụp giúp cơ quan xử lý và AI xác minh nhanh hơn', 'Multiple angles help response teams and AI verify faster')}
+                        </Text>
                     </TouchableOpacity>
+                ) : (
+                    <View style={styles.multiPhotoSection}>
+                        <ScrollView
+                            horizontal
+                            showsHorizontalScrollIndicator={false}
+                            contentContainerStyle={styles.multiPhotoScroll}
+                        >
+                            {photos.map((item, idx) => (
+                                <View key={`${item.uri}-${idx}`} style={styles.photoThumbWrap}>
+                                    <Image source={{ uri: item.uri }} style={styles.photoThumbImage} />
+                                    <View style={styles.photoIndexBadge}>
+                                        <Text style={styles.photoIndexText}>#{idx + 1}</Text>
+                                    </View>
+                                    <TouchableOpacity
+                                        style={styles.removeSinglePhotoBtn}
+                                        onPress={() => removePhotoAt(idx)}
+                                        disabled={loading}
+                                    >
+                                        <Ionicons name="close" size={14} color="#FFF" />
+                                    </TouchableOpacity>
+                                </View>
+                            ))}
+
+                            {photos.length < MAX_PHOTOS && (
+                                <TouchableOpacity
+                                    style={styles.addMorePhotoCard}
+                                    onPress={showImageOptions}
+                                    disabled={loading}
+                                >
+                                    <Ionicons name="add-circle-outline" size={26} color="#0A9D96" />
+                                    <Text style={styles.addMorePhotoText}>
+                                        {t('Thêm ảnh', 'Add photo')}
+                                    </Text>
+                                    <Text style={styles.addMorePhotoCount}>
+                                        {photos.length}/{MAX_PHOTOS}
+                                    </Text>
+                                </TouchableOpacity>
+                            )}
+                        </ScrollView>
+                    </View>
                 )}
 
-                <Text style={styles.sectionLabel}>{t('Mô tả chi tiết', 'Description')}</Text>
-                <TextInput
-                    style={[styles.input, styles.description]}
-                    value={description}
-                    onChangeText={setDescription}
-                    placeholder={t('Mô tả sự cố (ví dụ: ổ gà sâu 10cm nằm ngay giữa đường giao nhau)...', 'Describe the incident (for example: a 10 cm pothole in the middle of an intersection)...')}
-                    placeholderTextColor="#A5B1B8"
-                    multiline
-                    numberOfLines={4}
-                    textAlignVertical="top"
-                    editable={!loading}
-                />
+                <View style={styles.descriptionHeaderRow}>
+                    <Text style={styles.sectionLabel}>{t('Mô tả chi tiết', 'Description')}</Text>
+                    <TouchableOpacity
+                        style={[
+                            styles.micButton,
+                            isListening && styles.micButtonActive,
+                        ]}
+                        onPress={toggleVoiceDictation}
+                        disabled={loading}
+                    >
+                        <Ionicons
+                            name={isListening ? 'mic' : 'mic-outline'}
+                            size={15}
+                            color={isListening ? '#FFFFFF' : '#0A9D96'}
+                        />
+                        <Text
+                            style={[
+                                styles.micButtonText,
+                                isListening && styles.micButtonTextActive,
+                            ]}
+                        >
+                            {isListening
+                                ? t('Đang nghe... (Chạm để tắt)', 'Listening... (Tap to stop)')
+                                : t('Nhập bằng giọng nói', 'Voice Input')}
+                        </Text>
+                    </TouchableOpacity>
+                </View>
+
+                {isListening && (
+                    <View style={styles.voiceAssistantPanel}>
+                        <View style={styles.voiceStatusRow}>
+                            <View style={styles.voicePulseDot} />
+                            <Text style={styles.voiceStatusMessage}>
+                                {voiceStatusText ||
+                                    t(
+                                        'Micro đang bật: Hãy nói trực tiếp hoặc chọn câu đọc nhanh bên dưới.',
+                                        'Microphone active: Speak directly or tap a quick phrase below.'
+                                    )}
+                            </Text>
+                        </View>
+
+                        <TouchableOpacity
+                            style={styles.smartComposeButton}
+                            onPress={composeSmartVoiceDescription}
+                        >
+                            <Ionicons name="sparkles" size={14} color="#0F766E" />
+                            <Text style={styles.smartComposeText}>
+                                {t(
+                                    'Tự động đọc & điền mô tả từ Tiêu đề + Vị trí GPS',
+                                    'Auto-compose description from Title + GPS Location'
+                                )}
+                            </Text>
+                        </TouchableOpacity>
+
+                        <Text style={styles.voicePhrasesLabel}>
+                            {t('Chạm để chèn nhanh câu mô tả thường gặp:', 'Tap to insert common spoken phrases:')}
+                        </Text>
+                        <View style={styles.voicePhrasesWrap}>
+                            {VOICE_DICTATION_PHRASES.map((phrase, idx) => {
+                                const textValue = t(phrase.vi, phrase.en);
+                                return (
+                                    <TouchableOpacity
+                                        key={idx}
+                                        style={styles.voicePhraseChip}
+                                        onPress={() => appendSpokenPhrase(textValue)}
+                                    >
+                                        <Ionicons name="volume-medium-outline" size={13} color="#0A9D96" />
+                                        <Text style={styles.voicePhraseChipText}>{textValue}</Text>
+                                    </TouchableOpacity>
+                                );
+                            })}
+                        </View>
+                    </View>
+                )}
+
+                <View style={styles.descriptionInputWrapper}>
+                    <TextInput
+                        ref={descriptionInputRef}
+                        style={[styles.input, styles.description]}
+                        value={description}
+                        onChangeText={setDescription}
+                        placeholder={t(
+                            'Mô tả sự cố hoặc bấm nút "Nhập bằng giọng nói" 🎙️ ở góc phải...',
+                            'Describe the incident or tap "Voice Input" 🎙️ above...'
+                        )}
+                        placeholderTextColor="#A5B1B8"
+                        multiline
+                        numberOfLines={4}
+                        textAlignVertical="top"
+                        editable={!loading}
+                    />
+                    <TouchableOpacity
+                        style={[
+                            styles.FloatingMicInsideInput,
+                            isListening && styles.FloatingMicInsideInputActive,
+                        ]}
+                        onPress={toggleVoiceDictation}
+                        disabled={loading}
+                    >
+                        <Ionicons
+                            name={isListening ? 'mic' : 'mic-outline'}
+                            size={18}
+                            color={isListening ? '#FFF' : '#0A9D96'}
+                        />
+                    </TouchableOpacity>
+                </View>
 
                 <View style={styles.locationHeader}>
                     <Text style={styles.sectionLabel}>{t('Vị trí sự cố', 'Incident Location')}</Text>
@@ -786,7 +1150,12 @@ const styles = StyleSheet.create({
         fontSize: 13,
         marginBottom: 16,
     },
-    description: { minHeight: 88, paddingTop: 12 },
+    description: { minHeight: 96, paddingTop: 12, paddingRight: 44 },
+    photoHeaderRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+    },
     photoBox: {
         height: 116,
         borderWidth: 1,
@@ -798,12 +1167,206 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         overflow: 'hidden',
         marginBottom: 16,
+        paddingHorizontal: 12,
     },
-    photoTitle: { color: '#334155', fontSize: 12, fontWeight: '700' },
-    photoHint: { color: '#64748B', fontSize: 10, marginTop: 4 },
+    photoTitle: { color: '#334155', fontSize: 12, fontWeight: '700', textAlign: 'center' },
+    photoHint: { color: '#64748B', fontSize: 10, marginTop: 4, textAlign: 'center' },
     previewImage: { width: '100%', height: '100%', resizeMode: 'cover' },
     removePhoto: { alignSelf: 'flex-end', marginTop: -11, marginBottom: 13 },
-    removePhotoText: { color: '#C15A5A', fontSize: 11, fontWeight: '700' },
+    removePhotoText: { color: '#C15A5A', fontSize: 11, fontWeight: '700', marginBottom: 8 },
+    multiPhotoSection: {
+        marginBottom: 16,
+    },
+    multiPhotoScroll: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+        paddingVertical: 4,
+    },
+    photoThumbWrap: {
+        width: 106,
+        height: 106,
+        borderRadius: 12,
+        overflow: 'hidden',
+        borderWidth: 1,
+        borderColor: '#CBD5E1',
+        backgroundColor: '#E2E8F0',
+        position: 'relative',
+    },
+    photoThumbImage: {
+        width: '100%',
+        height: '100%',
+        resizeMode: 'cover',
+    },
+    photoIndexBadge: {
+        position: 'absolute',
+        bottom: 6,
+        left: 6,
+        backgroundColor: 'rgba(15, 23, 42, 0.72)',
+        paddingHorizontal: 6,
+        paddingVertical: 2,
+        borderRadius: 6,
+    },
+    photoIndexText: {
+        color: '#FFFFFF',
+        fontSize: 10,
+        fontWeight: '700',
+    },
+    removeSinglePhotoBtn: {
+        position: 'absolute',
+        top: 6,
+        right: 6,
+        width: 22,
+        height: 22,
+        borderRadius: 11,
+        backgroundColor: 'rgba(220, 38, 38, 0.9)',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    addMorePhotoCard: {
+        width: 106,
+        height: 106,
+        borderRadius: 12,
+        borderWidth: 1.5,
+        borderStyle: 'dashed',
+        borderColor: '#0A9D96',
+        backgroundColor: '#F0FDFA',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 8,
+    },
+    addMorePhotoText: {
+        color: '#0F766E',
+        fontSize: 11,
+        fontWeight: '700',
+        marginTop: 4,
+    },
+    addMorePhotoCount: {
+        color: '#64748B',
+        fontSize: 10,
+        fontWeight: '600',
+        marginTop: 2,
+    },
+    descriptionHeaderRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 8,
+    },
+    micButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 5,
+        backgroundColor: '#E6F7F5',
+        borderWidth: 1,
+        borderColor: '#99E6DF',
+        paddingHorizontal: 10,
+        paddingVertical: 5,
+        borderRadius: 16,
+    },
+    micButtonActive: {
+        backgroundColor: '#DC2626',
+        borderColor: '#DC2626',
+    },
+    micButtonText: {
+        color: '#0F766E',
+        fontSize: 11,
+        fontWeight: '700',
+    },
+    micButtonTextActive: {
+        color: '#FFFFFF',
+    },
+    voiceAssistantPanel: {
+        backgroundColor: '#F0FDFA',
+        borderWidth: 1,
+        borderColor: '#99E6DF',
+        borderRadius: 12,
+        padding: 11,
+        marginBottom: 10,
+    },
+    voiceStatusRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 7,
+        marginBottom: 8,
+    },
+    voicePulseDot: {
+        width: 8,
+        height: 8,
+        borderRadius: 4,
+        backgroundColor: '#EF4444',
+    },
+    voiceStatusMessage: {
+        flex: 1,
+        color: '#0F524F',
+        fontSize: 11.5,
+        fontWeight: '600',
+        lineHeight: 16,
+    },
+    smartComposeButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 6,
+        backgroundColor: '#CCFBF1',
+        borderWidth: 1,
+        borderColor: '#5EEAD4',
+        borderRadius: 9,
+        paddingVertical: 8,
+        paddingHorizontal: 10,
+        marginBottom: 9,
+    },
+    smartComposeText: {
+        color: '#0F766E',
+        fontSize: 11.5,
+        fontWeight: '700',
+    },
+    voicePhrasesLabel: {
+        color: '#475569',
+        fontSize: 10.5,
+        fontWeight: '700',
+        marginBottom: 6,
+    },
+    voicePhrasesWrap: {
+        gap: 6,
+    },
+    voicePhraseChip: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        backgroundColor: '#FFFFFF',
+        borderWidth: 1,
+        borderColor: '#CBD5E1',
+        borderRadius: 8,
+        paddingHorizontal: 9,
+        paddingVertical: 6,
+    },
+    voicePhraseChipText: {
+        flex: 1,
+        color: '#334155',
+        fontSize: 11,
+        fontWeight: '500',
+    },
+    descriptionInputWrapper: {
+        position: 'relative',
+    },
+    FloatingMicInsideInput: {
+        position: 'absolute',
+        right: 10,
+        bottom: 24,
+        width: 32,
+        height: 32,
+        borderRadius: 16,
+        backgroundColor: '#E6F7F5',
+        borderWidth: 1,
+        borderColor: '#99E6DF',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    FloatingMicInsideInputActive: {
+        backgroundColor: '#DC2626',
+        borderColor: '#DC2626',
+    },
     locationHeader: {
         flexDirection: 'row',
         justifyContent: 'space-between',

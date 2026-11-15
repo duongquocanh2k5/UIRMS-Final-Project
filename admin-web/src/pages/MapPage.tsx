@@ -35,12 +35,23 @@ function HeatLayer({ points }: { points: HeatmapPoint[] }) {
     return null;
 }
 
+function MapFocusController({ target }: { target: { lat: number; lng: number; zoom: number; trigger: number } | null }) {
+    const map = useMap();
+    useEffect(() => {
+        if (target && Number.isFinite(target.lat) && Number.isFinite(target.lng)) {
+            map.flyTo([target.lat, target.lng], Math.max(map.getZoom(), target.zoom), { duration: 0.75 });
+        }
+    }, [map, target]);
+    return null;
+}
+
 export default function MapPage() {
     const { t, translateCategory } = useLanguage();
     const [mode, setMode] = useState<MapMode>('street');
     const [categoryId, setCategoryId] = useState<number | undefined>();
     const [points, setPoints] = useState<HeatmapPoint[]>([]);
     const [allIncidents, setAllIncidents] = useState<MapIncidentPoint[]>([]);
+    const [focusTarget, setFocusTarget] = useState<{ lat: number; lng: number; zoom: number; trigger: number } | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const { categories, loading: categoriesLoading, error: categoriesError } = useCategories();
@@ -116,6 +127,7 @@ export default function MapPage() {
     return <section className="relative h-full min-h-[420px] bg-slate-100" aria-label={t('Bản đồ sự cố', 'Incident map')}>
         <MapContainer center={[10.7769, 106.7009]} zoom={12} scrollWheelZoom zoomControl={false} className="h-full w-full">
             <MapLayers layer={mode === 'satellite' ? 'satellite' : 'street'} />
+            <MapFocusController target={focusTarget} />
             {mode === 'heatmap' && <HeatLayer points={points} />}
             {visibleIncidents.map((incident) => {
                 const dotColor = getCategoryColor(incident.category_id, incident.category_name, incident.category_color);
@@ -125,9 +137,19 @@ export default function MapPage() {
                 return (
                     <CircleMarker
                         key={incident.id}
-                        center={[incident.lat, incident.lng]}
+                        center={[Number(incident.lat), Number(incident.lng)]}
                         radius={8}
                         pathOptions={{ color: '#ffffff', weight: 2.2, fillColor: dotColor, fillOpacity: 0.95 }}
+                        eventHandlers={{
+                            click: () => {
+                                setFocusTarget((prev) => ({
+                                    lat: Number(incident.lat),
+                                    lng: Number(incident.lng),
+                                    zoom: 17,
+                                    trigger: (prev?.trigger ?? 0) + 1,
+                                }));
+                            },
+                        }}
                     >
                         <Popup>
                             <div className="min-w-48 space-y-1.5 text-xs">

@@ -17,6 +17,8 @@ export const incidentImageUpload = multer({
     storage,
     limits: { fileSize: 10 * 1024 * 1024 },
     fileFilter: (_req, file, callback) => {
-        callback(null, file.mimetype.startsWith('image/'));
+        const isImageMime = file.mimetype.startsWith('image/');
+        const isImageExt = /\.(jpe?g|png|webp|gif|heic|heif)$/i.test(file.originalname || '');
+        callback(null, isImageMime || (file.mimetype === 'application/octet-stream' && isImageExt));
     },
 });

@@ -29,6 +29,10 @@ export interface AdminAIAnalysis {
     tags?: string[];
     severity_suggestion?: 'low' | 'medium' | 'high' | 'critical' | null;
     summary?: string | null;
+    verification_status?: 'MATCH' | 'CATEGORY_MISMATCH' | 'UNRELATED_OR_SPAM' | null;
+    verification_reason?: string | null;
+    verification_reason_vi?: string | null;
+    what_is_in_image?: string | null;
 }
 
 export interface AdminIncident {
@@ -339,7 +343,7 @@ async function getAllStaff(): Promise<StaffListItem[]> {
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-    const token = localStorage.getItem('adminToken');
+    const token = sessionStorage.getItem('adminToken');
     const response = await fetch(`${API_BASE_URL}${path}`, {
         ...options,
         headers: {
@@ -351,8 +355,8 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
     const body = await response.json().catch(() => null);
     if (response.status === 401 && ['/admin/', '/stats/', '/staff', '/admins/', '/categories', '/departments'].some((prefix) => path.startsWith(prefix))) {
-        localStorage.removeItem('adminToken');
-        localStorage.removeItem('adminUser');
+        sessionStorage.removeItem('adminToken');
+        sessionStorage.removeItem('adminUser');
         window.dispatchEvent(new Event('admin:unauthorized'));
     }
     if (!response.ok) throw new Error(body?.error || `API request failed (${response.status})`);
