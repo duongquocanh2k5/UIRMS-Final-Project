@@ -35,6 +35,9 @@ router.get('/search/nearby', authenticateOptionalToken, (req, res) => incidentCo
 // Get user's incidents
 router.get('/user/:userId', authenticateOptionalToken, (req, res) => incidentController.getUserIncidents(req, res));
 
+// Serve binary incident image by image ID (decodes stored base64 or redirects to URL)
+router.get('/images/:imageId', (req, res) => incidentController.serveIncidentImage(req, res));
+
 // Get all incidents
 router.get('/', authenticateOptionalToken, (req, res) => incidentController.getIncidents(req, res));
 

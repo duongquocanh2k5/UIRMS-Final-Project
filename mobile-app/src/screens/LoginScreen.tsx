@@ -237,19 +237,23 @@ export default function LoginScreen() {
     <View style={styles.container}>
       <View style={styles.languageButton}><LanguageToggle /></View>
       <Text style={styles.title}>{t('UIRMS - ĐĂNG NHẬP', 'UIRMS - LOG IN')}</Text>
+      <Text style={styles.fieldLabel}>{t('Email hoặc Số điện thoại', 'Email or Phone Number')}</Text>
       <TextInput
         style={[styles.input, isSubmitting && styles.inputDisabled]}
-        placeholder={t('Email hoặc số điện thoại', 'Email or phone number')}
+        placeholder={t('Nhập email hoặc số điện thoại', 'Enter email or phone number')}
+        placeholderTextColor="#64748b"
         value={email}
         onChangeText={setEmail}
         autoCapitalize="none"
         keyboardType="email-address"
         editable={!isSubmitting}
       />
+      <Text style={styles.fieldLabel}>{t('Mật khẩu', 'Password')}</Text>
       <View style={styles.passwordInputWrapper}>
         <TextInput
           style={[styles.input, styles.passwordInput, isSubmitting && styles.inputDisabled]}
-          placeholder={t('Mật khẩu', 'Password')}
+          placeholder={t('Nhập mật khẩu của bạn', 'Enter your password')}
+          placeholderTextColor="#64748b"
           value={password}
           onChangeText={setPassword}
           secureTextEntry={!showPassword}
@@ -441,6 +445,7 @@ export default function LoginScreen() {
               <TextInput
                 style={styles.input}
                 placeholder={t('Nhập 12 chữ số trên thẻ CCCD của bạn', 'Enter your 12-digit Citizen ID')}
+                placeholderTextColor="#64748b"
                 value={vneidCccd}
                 onChangeText={(val) => {
                   setVneidCccd(val.replace(/\D/g, ''));
@@ -488,6 +493,7 @@ export default function LoginScreen() {
               <TextInput
                 style={styles.input}
                 placeholder={t('Nhập họ và tên thật của bạn', 'Enter your full legal name')}
+                placeholderTextColor="#64748b"
                 value={vneidName}
                 onChangeText={setVneidName}
                 autoCapitalize="words"
@@ -500,6 +506,7 @@ export default function LoginScreen() {
               <TextInput
                 style={styles.input}
                 placeholder={t('Ví dụ: 0901234567', 'e.g., 0901234567')}
+                placeholderTextColor="#64748b"
                 value={vneidPhone}
                 onChangeText={setVneidPhone}
                 keyboardType="phone-pad"
@@ -541,16 +548,25 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 24,
     fontWeight: 'bold',
-    marginBottom: 32,
+    color: '#0f172a',
+    marginBottom: 28,
     textAlign: 'center',
+  },
+  fieldLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#334155',
+    marginBottom: 6,
   },
   input: {
     borderWidth: 1,
-    borderColor: '#ccc',
+    borderColor: '#cbd5e1',
     borderRadius: 10,
     padding: 14,
     marginBottom: 16,
     backgroundColor: '#fff',
+    color: '#0f172a',
+    fontSize: 15,
     width: '100%',
   },
   passwordInputWrapper: {

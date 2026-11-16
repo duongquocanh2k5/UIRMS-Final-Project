@@ -262,39 +262,53 @@ class ApiClient {
     return response.data;
   }
 
-  async uploadIncidentImage(incidentId: number, imageUri: string, imageBase64?: string) {
+  async uploadIncidentImage(
+    incidentId: number,
+    imageUri: string,
+    imageBase64?: string,
+    explicitMimeType?: string
+  ) {
     const cleanUri = imageUri.split('?')[0] || '';
     const extMatch = cleanUri.match(/\.([a-zA-Z0-9]+)$/);
     const rawExt = extMatch?.[1]?.toLowerCase();
     const ext = rawExt === 'png' || rawExt === 'webp' || rawExt === 'gif' || rawExt === 'heic' ? rawExt : 'jpg';
     const mimeType =
-      ext === 'png'
-        ? 'image/png'
-        : ext === 'webp'
-          ? 'image/webp'
-          : ext === 'gif'
-            ? 'image/gif'
-            : ext === 'heic'
-              ? 'image/heic'
-              : 'image/jpeg';
-    const fileName = `incident-${Date.now()}.${ext}`;
+      explicitMimeType && explicitMimeType.startsWith('image/')
+        ? explicitMimeType
+        : ext === 'png'
+          ? 'image/png'
+          : ext === 'webp'
+            ? 'image/webp'
+            : ext === 'gif'
+              ? 'image/gif'
+              : ext === 'heic'
+                ? 'image/heic'
+                : 'image/jpeg';
+    const fileName = `incident-${Date.now()}-${Math.round(Math.random() * 1e6)}.${ext}`;
 
-    // Prefer JSON base64 via Axios (same transport as createIncident; avoids RN fetch/FormData issues on Android/iOS/Web)
-    if (imageBase64) {
+    // Extract base64 if imageUri itself is a data: URI (e.g., on Web)
+    const effectiveBase64 =
+      imageBase64 ||
+      (imageUri.startsWith('data:image/') ? imageUri.split(',')[1] || '' : '');
+
+    // 1. Try JSON base64 via Axios first
+    if (effectiveBase64) {
       try {
-        const res = await this.client.post(`/incidents/${incidentId}/images`, {
-          image_base64: imageBase64,
-          mime_type: mimeType,
-        });
+        const res = await this.client.post(
+          `/incidents/${incidentId}/images`,
+          {
+            image_base64: effectiveBase64,
+            mime_type: mimeType,
+          },
+          { timeout: 60000 }
+        );
         return res.data;
       } catch (axiosErr: any) {
-        // Fallback to multipart FormData only if an older server rejects JSON (400)
-        if (axiosErr?.response?.status !== 400) {
-          throw new Error(axiosErr?.response?.data?.error || axiosErr?.message || 'Upload failed');
-        }
+        console.warn('JSON base64 image upload failed, falling back to FormData:', axiosErr?.message);
       }
     }
 
+    // 2. Fallback to multipart FormData for any failure or when base64 is not present
     const formData = new FormData();
     if (Platform.OS === 'web' || imageUri.startsWith('data:') || imageUri.startsWith('blob:')) {
       const fileResponse = await fetch(imageUri);

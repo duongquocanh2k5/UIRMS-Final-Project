@@ -91,12 +91,15 @@ export class IncidentService {
               ) AS citizen_feedback_at,
               COALESCE((SELECT json_agg(json_build_object(
                           'id', id,
-                          'image_url', image_url,
-                          'is_before', is_before,
+                          'image_url', CASE WHEN image_url LIKE 'data:%' THEN '/api/incidents/images/' || id::text ELSE image_url END,
+                          'is_before', COALESCE(is_before, true),
                           'created_at', created_at
-                        ) ORDER BY created_at)
+                        ) ORDER BY created_at ASC, id ASC)
                         FROM incident_images WHERE incident_id = incidents.id), '[]') AS images,
-              COALESCE((SELECT json_agg(image_url ORDER BY created_at)
+              COALESCE((SELECT json_agg(
+                          CASE WHEN image_url LIKE 'data:%' THEN '/api/incidents/images/' || id::text ELSE image_url END
+                          ORDER BY created_at ASC, id ASC
+                        )
                         FROM incident_images WHERE incident_id = incidents.id), '[]') AS image_urls
        FROM incidents
        LEFT JOIN categories ON categories.id = incidents.category_id
@@ -203,6 +206,13 @@ export class IncidentService {
     };
   }
 
+  async getIncidentImageRaw(imageId: number): Promise<{ id: number; image_url: string } | null> {
+    return queryOne<{ id: number; image_url: string }>(
+      `SELECT id, image_url FROM incident_images WHERE id = $1 LIMIT 1;`,
+      [imageId]
+    );
+  }
+
   async addIncidentImage(
     incidentId: number,
     userId: number,
@@ -210,8 +220,8 @@ export class IncidentService {
     imageSource: string | { buffer: Buffer; mimeType: string }
   ): Promise<{ image_id: number; ai_analysis: AIAnalysisResult | null } | null> {
     const savedImage = await queryOne<{ id: number }>(
-      `INSERT INTO incident_images (incident_id, image_url, uploaded_by)
-       SELECT id, $3, $2 FROM incidents
+      `INSERT INTO incident_images (incident_id, image_url, uploaded_by, is_before)
+       SELECT id, $3, $2, TRUE FROM incidents
        WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
        RETURNING id;`,
       [incidentId, userId, imageUrl]
@@ -326,12 +336,15 @@ export class IncidentService {
               ROUND(ST_X(incidents.location_point)::numeric, 6) AS longitude,
               COALESCE((SELECT json_agg(json_build_object(
                           'id', id,
-                          'image_url', image_url,
-                          'is_before', is_before,
+                          'image_url', CASE WHEN image_url LIKE 'data:%' THEN '/api/incidents/images/' || id::text ELSE image_url END,
+                          'is_before', COALESCE(is_before, true),
                           'created_at', created_at
-                        ) ORDER BY created_at)
+                        ) ORDER BY created_at ASC, id ASC)
                         FROM incident_images WHERE incident_id = incidents.id), '[]') AS images,
-              COALESCE((SELECT json_agg(image_url ORDER BY created_at)
+              COALESCE((SELECT json_agg(
+                          CASE WHEN image_url LIKE 'data:%' THEN '/api/incidents/images/' || id::text ELSE image_url END
+                          ORDER BY created_at ASC, id ASC
+                        )
                         FROM incident_images WHERE incident_id = incidents.id), '[]') AS image_urls
        FROM incidents
        LEFT JOIN categories ON categories.id = incidents.category_id

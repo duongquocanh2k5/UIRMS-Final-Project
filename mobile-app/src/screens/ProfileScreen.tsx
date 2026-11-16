@@ -630,6 +630,7 @@ export default function ProfileScreen() {
                     value={fullName}
                     onChangeText={setFullName}
                     placeholder={t('Nhập họ và tên', 'Enter your full name')}
+                    placeholderTextColor="#64748b"
                     autoCapitalize="words"
                     maxLength={255}
                   />
@@ -639,6 +640,7 @@ export default function ProfileScreen() {
                     value={phone}
                     onChangeText={setPhone}
                     placeholder={t('Nhập số điện thoại', 'Enter your phone number')}
+                    placeholderTextColor="#64748b"
                     keyboardType="phone-pad"
                   />
                 </>
@@ -653,6 +655,7 @@ export default function ProfileScreen() {
                       value={currentPassword}
                       onChangeText={setCurrentPassword}
                       placeholder={t('Nhập mật khẩu hiện tại', 'Enter your current password')}
+                      placeholderTextColor="#64748b"
                       secureTextEntry={!showCurrentPassword}
                       autoCapitalize="none"
                     />
@@ -673,6 +676,7 @@ export default function ProfileScreen() {
                       value={newPassword}
                       onChangeText={setNewPassword}
                       placeholder={t('Nhập mật khẩu mới', 'Enter your new password')}
+                      placeholderTextColor="#64748b"
                       secureTextEntry={!showNewPassword}
                       autoCapitalize="none"
                     />
@@ -691,6 +695,7 @@ export default function ProfileScreen() {
                       value={confirmPassword}
                       onChangeText={setConfirmPassword}
                       placeholder={t('Nhập lại mật khẩu mới', 'Re-enter your new password')}
+                      placeholderTextColor="#64748b"
                       secureTextEntry={!showConfirmPassword}
                       autoCapitalize="none"
                     />
@@ -790,6 +795,7 @@ export default function ProfileScreen() {
                     value={verificationCode}
                     onChangeText={setVerificationCode}
                     placeholder="123456"
+                    placeholderTextColor="#64748b"
                     keyboardType="number-pad"
                     maxLength={6}
                   />
@@ -846,6 +852,7 @@ export default function ProfileScreen() {
                       value={vneidCccd}
                       onChangeText={(val) => setVneidCccd(val.replace(/\D/g, ''))}
                       placeholder={t('Nhập đúng 12 chữ số CCCD thật của bạn', 'Enter your 12-digit Citizen ID (CCCD)')}
+                      placeholderTextColor="#64748b"
                       keyboardType="number-pad"
                       maxLength={12}
                     />

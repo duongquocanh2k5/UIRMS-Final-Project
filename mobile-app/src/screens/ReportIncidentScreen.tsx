@@ -171,6 +171,7 @@ const VOICE_DICTATION_PHRASES = [
 interface SelectedPhoto {
     uri: string;
     base64?: string | null;
+    mimeType?: string | null;
 }
 
 export default function ReportIncidentScreen({ navigation, route }: any) {
@@ -345,14 +346,14 @@ export default function ReportIncidentScreen({ navigation, route }: any) {
         const result = useCamera
             ? await ImagePicker.launchCameraAsync({
                 mediaTypes: ['images'],
-                quality: 0.7,
+                quality: 0.5,
                 base64: true,
                 allowsEditing: true,
                 aspect: [4, 3],
             })
             : await ImagePicker.launchImageLibraryAsync({
                 mediaTypes: ['images'],
-                quality: 0.7,
+                quality: 0.5,
                 base64: true,
                 allowsMultipleSelection: true,
                 selectionLimit: remainingSlots,
@@ -364,6 +365,7 @@ export default function ReportIncidentScreen({ navigation, route }: any) {
                 .map((asset) => ({
                     uri: asset.uri,
                     base64: asset.base64 || null,
+                    mimeType: asset.mimeType || 'image/jpeg',
                 }));
 
             setPhotos((prev) => {
@@ -540,7 +542,12 @@ export default function ReportIncidentScreen({ navigation, route }: any) {
                 let lastUploadError: any = null;
                 for (const photo of photos) {
                     try {
-                        await apiClient.uploadIncidentImage(incidentId, photo.uri, photo.base64 || undefined);
+                        await apiClient.uploadIncidentImage(
+                            incidentId,
+                            photo.uri,
+                            photo.base64 || undefined,
+                            photo.mimeType || undefined
+                        );
                         uploadedCount += 1;
                     } catch (uploadError: any) {
                         lastUploadError = uploadError;
@@ -553,14 +560,29 @@ export default function ReportIncidentScreen({ navigation, route }: any) {
                             `Đã tải lên ${uploadedCount}/${photos.length} ảnh. ${lastUploadError?.message || 'Vui lòng kiểm tra kết nối.'}`,
                             `Uploaded ${uploadedCount}/${photos.length} photos. ${lastUploadError?.message || 'Please check your connection.'}`
                         ),
-                        [{ text: t('Xong', 'Done'), onPress: () => navigation.goBack() }]
+                        [
+                            {
+                                text: t('Xem báo cáo', 'View Report'),
+                                onPress: () => navigation.replace('IncidentDetail', { id: incidentId }),
+                            },
+                        ]
                     );
                     return;
                 }
             }
-            Alert.alert(t('Đã gửi báo cáo', 'Report Submitted'), t('Cảm ơn bạn đã góp phần xây dựng đô thị tốt hơn.', 'Thank you for helping improve our city.'), [
-                { text: t('Xong', 'Done'), onPress: () => navigation.goBack() },
-            ]);
+            Alert.alert(
+                t('Đã gửi báo cáo', 'Report Submitted'),
+                t('Cảm ơn bạn đã góp phần xây dựng đô thị tốt hơn.', 'Thank you for helping improve our city.'),
+                [
+                    {
+                        text: t('Xem chi tiết báo cáo', 'View Report Details'),
+                        onPress: () =>
+                            incidentId
+                                ? navigation.replace('IncidentDetail', { id: incidentId })
+                                : navigation.goBack(),
+                    },
+                ]
+            );
         } catch (error: any) {
             Alert.alert(
                 t('Gửi báo cáo thất bại', 'Report Submission Failed'),

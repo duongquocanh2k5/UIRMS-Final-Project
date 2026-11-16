@@ -170,9 +170,11 @@ export default function RegisterScreen({ navigation }: any) {
 
       <View style={styles.form}>
         <View style={styles.fieldGroup}>
+          <Text style={styles.fieldLabel}>{t('Họ và tên', 'Full name')}</Text>
           <TextInput
             style={styles.input}
-            placeholder={t('Họ và tên', 'Full name')}
+            placeholder={t('Nhập họ và tên (VD: Nguyễn Văn A)', 'Enter your full name')}
+            placeholderTextColor="#64748b"
             value={fullName}
             onChangeText={(text) => { setFullName(text); setErrors((p) => ({ ...p, fullName: undefined })); }}
             editable={!loading}
@@ -180,9 +182,11 @@ export default function RegisterScreen({ navigation }: any) {
           {errors.fullName ? <Text style={styles.errorText}>{getErrorMessage(errors.fullName)}</Text> : null}
         </View>
         <View style={styles.fieldGroup}>
+          <Text style={styles.fieldLabel}>{t('Số điện thoại', 'Phone number')}</Text>
           <TextInput
             style={styles.input}
-            placeholder={t('Số điện thoại', 'Phone number')}
+            placeholder={t('Nhập số điện thoại Việt Nam (VD: 0901234567)', 'Enter phone number (e.g., 0901234567)')}
+            placeholderTextColor="#64748b"
             value={phone}
             onChangeText={(text) => { setPhone(text); setErrors((p) => ({ ...p, phone: undefined })); }}
             keyboardType="phone-pad"
@@ -191,32 +195,40 @@ export default function RegisterScreen({ navigation }: any) {
           {errors.phone ? <Text style={styles.errorText}>{getErrorMessage(errors.phone)}</Text> : null}
         </View>
         <View style={styles.fieldGroup}>
+          <Text style={styles.fieldLabel}>{t('Địa chỉ Email', 'Email address')}</Text>
           <TextInput
             style={styles.input}
-            placeholder="Email"
+            placeholder={t('Nhập email của bạn', 'Enter your email address')}
+            placeholderTextColor="#64748b"
             value={email}
             onChangeText={(text) => { setEmail(text); setErrors((p) => ({ ...p, email: undefined })); }}
             keyboardType="email-address"
+            autoCapitalize="none"
             editable={!loading}
           />
           {errors.email ? <Text style={styles.errorText}>{getErrorMessage(errors.email)}</Text> : null}
         </View>
         <View style={styles.fieldGroup}>
+          <Text style={styles.fieldLabel}>{t('Số CMND/CCCD (9 hoặc 12 số)', 'National ID / CCCD (9 or 12 digits)')}</Text>
           <TextInput
             style={styles.input}
-            placeholder={t('Số CMND/CCCD', 'National ID number')}
+            placeholder={t('Nhập 12 chữ số CCCD hoặc 9 số CMND', 'Enter 12-digit CCCD or 9-digit ID')}
+            placeholderTextColor="#64748b"
             value={identityNumber}
             onChangeText={(text) => { setIdentityNumber(text); setErrors((p) => ({ ...p, identityNumber: undefined })); }}
             keyboardType="numeric"
+            maxLength={12}
             editable={!loading}
           />
           {errors.identityNumber ? <Text style={styles.errorText}>{getErrorMessage(errors.identityNumber)}</Text> : null}
         </View>
         <View style={styles.fieldGroup}>
+          <Text style={styles.fieldLabel}>{t('Mật khẩu', 'Password')}</Text>
           <View style={styles.passwordInputWrapper}>
             <TextInput
               style={[styles.input, styles.passwordInput]}
-              placeholder={t('Mật khẩu', 'Password')}
+              placeholder={t('Ít nhất 8 ký tự, gồm chữ hoa, số & ký tự đặc biệt', 'Min 8 chars, uppercase, number & special char')}
+              placeholderTextColor="#64748b"
               value={password}
               onChangeText={(text) => { setPassword(text); setErrors((p) => ({ ...p, password: undefined })); }}
               secureTextEntry={!showPassword}
@@ -234,10 +246,12 @@ export default function RegisterScreen({ navigation }: any) {
           {errors.password ? <Text style={styles.errorText}>{getErrorMessage(errors.password)}</Text> : null}
         </View>
         <View style={styles.fieldGroup}>
+          <Text style={styles.fieldLabel}>{t('Xác nhận mật khẩu', 'Confirm password')}</Text>
           <View style={styles.passwordInputWrapper}>
             <TextInput
               style={[styles.input, styles.passwordInput]}
-              placeholder={t('Xác nhận mật khẩu', 'Confirm password')}
+              placeholder={t('Nhập lại mật khẩu phía trên', 'Re-enter your password')}
+              placeholderTextColor="#64748b"
               value={confirmPassword}
               onChangeText={(text) => { setConfirmPassword(text); setErrors((p) => ({ ...p, confirmPassword: undefined })); }}
               secureTextEntry={!showConfirmPassword}
@@ -295,14 +309,21 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   fieldGroup: {
-    gap: 4,
+    gap: 5,
+  },
+  fieldLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#334155',
   },
   input: {
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: '#cbd5e1',
     borderRadius: 8,
     padding: 12,
-    fontSize: 16,
+    fontSize: 15,
+    backgroundColor: '#ffffff',
+    color: '#0f172a',
   },
   passwordInputWrapper: {
     position: 'relative',

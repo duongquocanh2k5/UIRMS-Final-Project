@@ -212,11 +212,11 @@ export class AdminService {
               COALESCE((
                 SELECT json_agg(json_build_object(
                   'id', image.id,
-                  'image_url', image.image_url,
+                  'image_url', CASE WHEN image.image_url LIKE 'data:%' THEN '/api/incidents/images/' || image.id::text ELSE image.image_url END,
                   'is_before', COALESCE((to_jsonb(image)->>'is_before')::boolean, true),
                   'ai_analysis', to_jsonb(image)->'ai_analysis',
                   'created_at', image.created_at
-                ) ORDER BY image.created_at ASC)
+                ) ORDER BY image.created_at ASC, image.id ASC)
                 FROM incident_images image
                 WHERE image.incident_id = i.id
               ), '[]') AS images,
@@ -229,7 +229,10 @@ export class AdminService {
                 ORDER BY image.created_at DESC
                 LIMIT 1
               ) AS ai_analysis,
-              COALESCE((SELECT json_agg(image_url ORDER BY created_at)
+              COALESCE((SELECT json_agg(
+                CASE WHEN image_url LIKE 'data:%' THEN '/api/incidents/images/' || id::text ELSE image_url END
+                ORDER BY created_at ASC, id ASC
+              )
             FROM incident_images WHERE incident_id = i.id), '[]') AS image_urls,
               u.email AS user_email, u.phone AS user_phone, u.full_name AS user_name,
               c.name AS category_name,

@@ -61,26 +61,33 @@ export default function ForgotPasswordScreen({ navigation }: any) {
                 <LanguageToggle />
             </View>
             <Text style={styles.helper}>{t('Nhập email bạn đã dùng để đăng ký để nhận mã đặt lại mật khẩu.', 'Enter the email address you used to register to receive a password reset code.')}</Text>
+            <Text style={styles.fieldLabel}>{t('Email đăng ký', 'Registered Email')}</Text>
             <TextInput
                 style={styles.input}
-                placeholder="Email"
+                placeholder={t('Nhập địa chỉ email của bạn', 'Enter your email address')}
+                placeholderTextColor="#64748b"
                 keyboardType="email-address"
+                autoCapitalize="none"
                 value={email}
                 onChangeText={(t) => { setEmail(t); setMessage(null); setCodeSent(false); setResetComplete(false); }}
                 editable={!loading && !codeSent}
             />
             {codeSent && !resetComplete && <>
+                <Text style={[styles.fieldLabel, { marginTop: 12 }]}>{t('Mã xác nhận (OTP)', 'Verification code (OTP)')}</Text>
                 <TextInput
-                    style={[styles.input, styles.additionalInput]}
-                    placeholder={t('Mã xác nhận (OTP)', 'Verification code (OTP)')}
+                    style={styles.input}
+                    placeholder={t('Nhập mã OTP 6 số trong email', 'Enter 6-digit OTP code')}
+                    placeholderTextColor="#64748b"
                     keyboardType="number-pad"
                     value={resetCode}
                     onChangeText={(value) => { setResetCode(value); setMessage(null); }}
                     editable={!loading}
                 />
+                <Text style={[styles.fieldLabel, { marginTop: 12 }]}>{t('Mật khẩu mới', 'New password')}</Text>
                 <TextInput
-                    style={[styles.input, styles.additionalInput]}
-                    placeholder={t('Mật khẩu mới', 'New password')}
+                    style={styles.input}
+                    placeholder={t('Nhập mật khẩu mới', 'Enter new password')}
+                    placeholderTextColor="#64748b"
                     secureTextEntry
                     value={newPassword}
                     onChangeText={(value) => { setNewPassword(value); setMessage(null); }}
@@ -112,8 +119,9 @@ const styles = StyleSheet.create({
     container: { flex: 1, padding: 20, backgroundColor: '#fff' },
     title: { fontSize: 22, fontWeight: 'bold', color: '#2563eb', marginBottom: 8, marginTop: 20 },
     header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-    helper: { color: '#555', marginBottom: 12 },
-    input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 12, fontSize: 16 },
+    helper: { color: '#475569', marginBottom: 14, lineHeight: 20 },
+    fieldLabel: { fontSize: 13, fontWeight: '700', color: '#334155', marginBottom: 6 },
+    input: { borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 8, padding: 12, fontSize: 15, backgroundColor: '#ffffff', color: '#0f172a' },
     additionalInput: { marginTop: 12 },
     button: { backgroundColor: '#2563eb', padding: 14, borderRadius: 8, alignItems: 'center', marginTop: 12 },
     buttonDisabled: { opacity: 0.6 },

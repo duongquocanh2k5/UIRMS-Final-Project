@@ -291,14 +291,12 @@ export default function IncidentDetailScreen({ route, navigation }: any) {
     Number.isFinite(incident.latitude) && Number.isFinite(incident.longitude)
       ? { latitude: Number(incident.latitude), longitude: Number(incident.longitude) }
       : null;
-  const beforeImages = incident.images?.filter((image) => image.is_before) || [];
-  const resultImages = incident.images?.filter((image) => !image.is_before) || [];
+  const beforeImages = incident.images?.filter((image) => image.is_before !== false) || [];
+  const resultImages = incident.images?.filter((image) => image.is_before === false) || [];
   const displayedBeforeImages: ImagePreview[] =
     beforeImages.length > 0
       ? beforeImages
-      : incident.images?.length
-        ? []
-        : (incident.image_urls || []).map((image_url, index) => ({
+      : (incident.image_urls || []).map((image_url, index) => ({
           id: `legacy-${index}`,
           image_url,
           is_before: true,
@@ -702,6 +700,7 @@ export default function IncidentDetailScreen({ route, navigation }: any) {
                 value={editTitle}
                 onChangeText={setEditTitle}
                 placeholder={t('Nhập tiêu đề sự cố', 'Enter incident title')}
+                placeholderTextColor="#64748b"
                 maxLength={255}
               />
 
@@ -737,6 +736,7 @@ export default function IncidentDetailScreen({ route, navigation }: any) {
                 value={editLocation}
                 onChangeText={setEditLocation}
                 placeholder={t('Nhập địa chỉ cụ thể', 'Enter specific address')}
+                placeholderTextColor="#64748b"
                 maxLength={500}
               />
 
@@ -746,6 +746,7 @@ export default function IncidentDetailScreen({ route, navigation }: any) {
                 value={editDescription}
                 onChangeText={setEditDescription}
                 placeholder={t('Mô tả thêm về hiện trạng sự cố...', 'Describe the incident details...')}
+                placeholderTextColor="#64748b"
                 multiline
                 maxLength={2000}
               />

@@ -122,6 +122,45 @@ export class IncidentController {
     }
   }
 
+  async serveIncidentImage(req: Request, res: Response): Promise<void> {
+    try {
+      const imageId = parseInt(req.params.imageId as string, 10);
+      if (!Number.isFinite(imageId) || imageId <= 0) {
+        res.status(HTTP_STATUS.BAD_REQUEST).json({ error: ERROR_MESSAGES.INVALID_INPUT });
+        return;
+      }
+
+      const row = await incidentService.getIncidentImageRaw(imageId);
+      if (!row || !row.image_url) {
+        res.status(HTTP_STATUS.NOT_FOUND).json({ error: ERROR_MESSAGES.NOT_FOUND });
+        return;
+      }
+
+      const rawUrl = row.image_url.trim();
+      const dataMatch = rawUrl.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/s);
+      if (dataMatch) {
+        const mimeType = dataMatch[1] || 'image/jpeg';
+        const base64Data = dataMatch[2] || '';
+        const buffer = Buffer.from(base64Data, 'base64');
+        res.setHeader('Content-Type', mimeType);
+        res.setHeader('Content-Length', String(buffer.length));
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        res.send(buffer);
+        return;
+      }
+
+      if (rawUrl.startsWith('http://') || rawUrl.startsWith('https://') || rawUrl.startsWith('/uploads/')) {
+        res.redirect(rawUrl);
+        return;
+      }
+
+      res.status(HTTP_STATUS.NOT_FOUND).json({ error: ERROR_MESSAGES.NOT_FOUND });
+    } catch (error) {
+      console.error('Serve incident image error:', error);
+      res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({ error: ERROR_MESSAGES.INTERNAL_ERROR });
+    }
+  }
+
   async uploadIncidentImage(req: AuthRequest, res: Response): Promise<void> {
     try {
       const userId = req.user?.id;
@@ -148,7 +187,7 @@ export class IncidentController {
         }
         imageSource = file.path;
       } else {
-        const dataUrlMatch = rawBase64.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
+        const dataUrlMatch = rawBase64.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/s);
         const mimeType = dataUrlMatch?.[1] || (typeof req.body?.mime_type === 'string' && req.body.mime_type.startsWith('image/') ? req.body.mime_type : 'image/jpeg');
         const base64Data = dataUrlMatch?.[2] || rawBase64;
         const buffer = Buffer.from(base64Data, 'base64');
@@ -170,7 +209,7 @@ export class IncidentController {
         success: true,
         data: {
           id: saved.image_id,
-          image_url: imageUrl,
+          image_url: `/api/incidents/images/${saved.image_id}`,
           ai_analysis: saved.ai_analysis,
         },
       });

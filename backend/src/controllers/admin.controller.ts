@@ -117,7 +117,13 @@ export class AdminController {
         res.status(HTTP_STATUS.NOT_FOUND).json({ error: ERROR_MESSAGES.NOT_FOUND });
         return;
       }
-      res.status(HTTP_STATUS.CREATED).json({ success: true, data: saved });
+      res.status(HTTP_STATUS.CREATED).json({
+        success: true,
+        data: {
+          ...saved,
+          image_url: `/api/incidents/images/${saved.id}`,
+        },
+      });
     } catch (error) {
       await unlink(file.path).catch(() => undefined);
       console.error('Upload admin incident evidence error:', error);

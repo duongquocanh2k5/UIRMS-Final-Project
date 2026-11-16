@@ -42,47 +42,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const bootstrapAsync = async () => {
     try {
-      console.log('=== Khởi động Auth Bootstrap ===');
-
-      if (Platform.OS === 'web') {
-        setIsLoading(false);
-        return;
-      }
-
-      // Khớp chuẩn Key 'authToken' từ file api.ts của bạn
-      const token = await AsyncStorage.getItem('authToken');
-      const savedUserData = await AsyncStorage.getItem('userData');
-
-      if (token && savedUserData) {
-        console.log('Khôi phục phiên đăng nhập từ bộ nhớ tạm...');
-        setUser(JSON.parse(savedUserData));
-        setIsSignedIn(true);
-
-        // Gọi ngầm API để kiểm tra và cập nhật thông tin user mới nhất
-        try {
-          // api.ts đã return response.data nên data ở đây chứa trực tiếp { success, data, message }
-          const res = await Promise.race([
-            apiClient.getCurrentUser(),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 3000))
-          ]) as any;
-
-          if (res && res.success && res.data) {
-            console.log('Token hợp lệ. Cập nhật profile.');
-            setUser(res.data);
-            await AsyncStorage.setItem('userData', JSON.stringify(res.data));
-          }
-        } catch (apiErr) {
-          console.log('Không làm mới được session ngầm (Backend offline hoặc Token hết hạn):', apiErr);
-        }
-      } else {
-        console.log('Không tìm thấy token cũ. Chuyển hướng sang Đăng nhập.');
-        setIsSignedIn(false);
-      }
+      // Luôn làm sạch phiên cũ khi khởi động ứng dụng để mỗi thiết bị / mỗi lần mở app
+      // đều bắt đầu độc lập tại màn hình Đăng nhập (LoginScreen), tránh tự động đăng nhập tài khoản cũ.
+      await AsyncStorage.multiRemove(['authToken', 'userData']);
+      setUser(null);
+      setIsSignedIn(false);
     } catch (e) {
-      console.error('Lỗi nghiêm trọng trong bootstrapAsync:', e);
+      console.error('Lỗi khi khởi tạo phiên đăng nhập mới:', e);
+      setUser(null);
       setIsSignedIn(false);
     } finally {
-      console.log('=== Hoàn thành Auth Bootstrap -> Tắt Loading ===');
       setIsLoading(false);
     }
   };
